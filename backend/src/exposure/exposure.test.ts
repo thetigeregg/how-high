@@ -356,3 +356,23 @@ describe("which side the drop is on", () => {
     expect(score(measure(ground((x) => 1000 - x), northbound(0), identity)).legs[0].sides).toBeUndefined();
   });
 });
+
+describe("Street View link", () => {
+  const link = (terrain: Terrain, track = northbound(0)) => new URL(analyseTrack(terrain, track, identity).sections[0].links.streetView);
+
+  it("opens at the worst spot, facing the drop and looking down", () => {
+    // Northbound with the ground falling away to the east.
+    const url = link(ground((x) => 1000 - x));
+    expect(url.searchParams.get("map_action")).toBe("pano");
+    expect(url.searchParams.get("heading")).toBe("90");
+    expect(url.searchParams.get("pitch")).toBe("-20");
+    expect(url.searchParams.get("viewpoint")).toMatch(/^-?\d+\.\d+,-?\d+\.\d+$/);
+    // The same slope walked southbound still drops to the east.
+    expect(link(ground((x) => 1000 - x), resample([[0, 200], [0, -200]], 5)).searchParams.get("heading")).toBe("90");
+    expect(link(ground((x) => 1000 + x)).searchParams.get("heading")).toBe("270");
+  });
+
+  it("faces the way of travel where the drop is on both sides", () => {
+    expect(link(ground((x) => 1000 - Math.abs(x))).searchParams.get("heading")).toBe("0");
+  });
+});

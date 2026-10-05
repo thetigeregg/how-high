@@ -118,6 +118,15 @@
                 <a href={s.links.swisstopo} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>swisstopo</a>
               {/if}
               <a href={s.links.google} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>Google</a>
+              <a
+                href={s.links.streetView}
+                target="_blank"
+                rel="noreferrer"
+                title="Opens Google Street View at the worst spot, facing the drop. Google has no imagery for many trails and railways; the link then lands on the map or the nearest road."
+                onclick={(e) => e.stopPropagation()}
+              >
+                Street View
+              </a>
             </td>
           </tr>
         {/each}

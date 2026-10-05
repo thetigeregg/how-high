@@ -24,6 +24,9 @@ import {
 
 /** A side with less drop than this is not the exposed side. */
 const EXPOSED_SIDE_MIN_DROP_M = 3;
+/** How far below level Street View looks when opened at a flagged spot, degrees. */
+const STREET_VIEW_PITCH = -20;
+
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 export interface AnalysedPoint {
@@ -86,7 +89,7 @@ export interface Section {
   maxViewDepthM: number;
   /** Location of the worst point, with links for a visual check. */
   worst: { dist: number; lon: number; lat: number; elevation: number };
-  links: { swisstopo: string | null; google: string };
+  links: { swisstopo: string | null; google: string; streetView: string };
 }
 
 export interface Analysis {
@@ -253,6 +256,11 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
   const bearing = (Math.atan2(vx, vy) * 180) / Math.PI;
   const dropTowards = COMPASS[Math.round(((bearing + 360) % 360) / 45) % 8];
 
+  // Street View opens facing the drop and tilted down at it; where the drop
+  // is on both sides (a ridge, a bridge) it faces the way of travel instead.
+  const lookAt = side === "both" ? (Math.atan2(tx, ty) * 180) / Math.PI : bearing;
+  const heading = Math.round((lookAt + 360) % 360);
+
   const [e, n] = lv95.forward(worst.lon, worst.lat);
   return {
     level: levelOf(peak, params),
@@ -278,6 +286,8 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
         ? `https://map.geo.admin.ch/#/map?lang=en&center=${e.toFixed(0)},${n.toFixed(0)}&z=11&bgLayer=ch.swisstopo.pixelkarte-farbe&crosshair=marker`
         : null,
       google: `https://www.google.com/maps/@?api=1&map_action=map&center=${worst.lat.toFixed(6)},${worst.lon.toFixed(6)}&zoom=17&basemap=terrain`,
+      // Opens the nearest panorama, if Google has one; there is no telling from here whether it does.
+      streetView: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${worst.lat.toFixed(6)},${worst.lon.toFixed(6)}&heading=${heading}&pitch=${STREET_VIEW_PITCH}&fov=90`,
     },
   };
 }

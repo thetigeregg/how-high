@@ -145,7 +145,7 @@ export interface Section {
   harderThan?: ReferenceLink | null;
   possibleBridge: boolean;
   worst: { dist: number; lon: number; lat: number; elevation: number };
-  links: { swisstopo: string | null; google: string };
+  links: { swisstopo: string | null; google: string; streetView: string };
 }
 
 export interface Analysis {
