@@ -133,6 +133,9 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
     .filter((k) => JSON.stringify(settings[key][k]) !== JSON.stringify(tuned[k]))
     .map((k) => ({ key: k as string, current: settings[key][k], proposed: tuned[k] }));
 
+  // Only disagreements of the kind being tuned belong in the proposal: hike
+  // settings cannot settle a disagreement on a train ride, nor the reverse.
+  const ofProfile = (d: Disagreement) => (byId.get(d.analysisId)?.measurement.profile ?? "hike") === profile;
   const before = stateUnder(entries, marks, settings);
   const after = changes.length > 0 ? stateUnder(entries, marks, proposed) : before;
   const library = entries.flatMap((entry) => {
@@ -148,8 +151,8 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
     marks: stretches.length,
     changes,
     settings: proposed,
-    before: { overFlagged: before.overFlagged, missed: before.missed },
-    after: { overFlagged: after.overFlagged, missed: after.missed },
+    before: { overFlagged: before.overFlagged.filter(ofProfile), missed: before.missed.filter(ofProfile) },
+    after: { overFlagged: after.overFlagged.filter(ofProfile), missed: after.missed.filter(ofProfile) },
     library,
   };
 }

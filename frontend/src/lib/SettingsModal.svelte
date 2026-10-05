@@ -551,10 +551,15 @@
         </tbody>
       </table>
 
-      <h3>Agreement with your marks</h3>
+      {@const now = proposal.before.overFlagged.length + proposal.before.missed.length}
+      {@const then = proposal.after.overFlagged.length + proposal.after.missed.length}
+      <h3>Agreement with your marks on {proposal.profile === "hike" ? "hikes" : "routes"}</h3>
       <p>
-        Disagreements now: <strong>{proposal.before.overFlagged.length + proposal.before.missed.length}</strong>. With the
-        suggestion: <strong>{proposal.after.overFlagged.length + proposal.after.missed.length}</strong>.
+        Disagreements now: <strong>{now}</strong>. With the suggestion: <strong>{then}</strong>.
+        {#if then >= now}
+          This does not settle a disagreement. It moves a marked stretch that scores close to a level boundary further
+          onto the side you marked it.
+        {/if}
       </p>
       {#if proposal.after.overFlagged.length + proposal.after.missed.length > 0}
         <ul>
