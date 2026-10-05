@@ -234,7 +234,7 @@
         <span>Side slope {Math.round(hovered.metrics.crossSlopeDeg)}°</span>
         <span>Path grade {Math.round(hovered.metrics.trackGradeDeg)}°</span>
       {:else}
-        <span>No terrain data</span>
+        <span>Not scored here</span>
       {/if}
     </div>
   {/if}

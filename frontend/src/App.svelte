@@ -239,6 +239,12 @@
               This is the route Google suggests now; it can differ from the one shown when the link was shared. Roads
               and railways are scored from the terrain beside them: guardrails and which side you sit on are not known.
             </p>
+            {#if result.summary.noDataM > 0}
+              <p class="note">
+                {km(result.summary.noDataM)} of this route is not scored (grey on the map): there Google's line strays
+                from the mapped road or track, so the terrain under it says nothing about the ride.
+              </p>
+            {/if}
           {/if}
           {#if result.mapContext !== true}
             <p class="note">
@@ -282,7 +288,7 @@
             </li>
           {/each}
           {#if result.summary.noDataM > 0}
-            <li>No terrain data <strong>{km(result.summary.noDataM)}</strong></li>
+            <li>Not scored <strong>{km(result.summary.noDataM)}</strong></li>
           {/if}
         </ul>
       </div>

@@ -271,3 +271,22 @@ describe("routes", () => {
     expect(score(walked, lenient, { walkParams: DEFAULT_PARAMS }).summary.level).toBe("red");
   });
 });
+
+describe("route lines that stray from the map", () => {
+  const slope = measure(ground((x) => 1000 - x), northbound(0), identity, {
+    // A mapped track exists only along the first half of the line.
+    context: { inForest: () => false, cliffNear: () => false, pathAt: (_x, y) => (y < 0 ? { tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false, rack: false, funicular: false } : null) },
+  });
+  const asLeg = (mode: "rail" | "hike") => ({ ...slope, profile: "road" as const, legs: [{ mode, label: "x", startM: 0, endM: 400 }] });
+
+  it("leaves a train's unmatched stretch unscored instead of rating the terrain under it", () => {
+    const analysis = score(asLeg("rail"), DEFAULT_PARAMS);
+    expect(analysis.points[10].score).toBeGreaterThan(50);
+    expect(analysis.points[60].score).toBeNull();
+    expect(analysis.summary.noDataM).toBeGreaterThan(150);
+  });
+
+  it("still scores an unmapped stretch on foot", () => {
+    expect(score(asLeg("hike"), DEFAULT_PARAMS).points[60].score).toBeGreaterThan(50);
+  });
+});

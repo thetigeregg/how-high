@@ -354,7 +354,12 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     while (legIndex < legs.length - 1 && dist > legs[legIndex].endM) legIndex++;
     const mode = legs[legIndex].mode;
     const params = mode === "walk" || mode === "hike" ? (options.walkParams ?? routeParams) : routeParams;
-    if (mode === "ferry") {
+    // A road or rail point with no mapped road or track beside it means the
+    // line from the routing service has strayed from where the vehicle really
+    // runs, so the terrain measured there says nothing about the ride.
+    const kind = TRAVEL_KIND[mode];
+    const strayed = (kind === "road" || kind === "rail") && context !== null && !context.matched && !context.noGo;
+    if (mode === "ferry" || strayed) {
       return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
     }
     if (context?.noGo && noGo[context.noGo]) {
