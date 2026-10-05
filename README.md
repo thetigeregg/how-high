@@ -51,8 +51,18 @@ each point the terrain around it is measured:
 - **Ridge**: ground falling away on both sides.
 - **Bridge**: ground dipping well below a straight span of track.
 
-These combine into a score from 0 to 100, shown as Easy, Mild, Exposed or
-Severe. Map data then adjusts it: wooded slopes and wide tracks lower the
+A second, separate measure is the **open view**: from every 25 m of the
+route the app works out which ground is visible out to 8 km and how far
+below you it lies. A flat, safe path that looks out over a valley 400 m down
+scores on this even though nothing beside it is steep. Ground hidden behind
+nearer ground does not count, a view has to span a set width of the horizon,
+and forest at the spot halves it. It starts switched off for car, bus and
+train.
+
+The worse of the two decides. Together they give a score from 0 to 100,
+shown as Easy, Mild, Exposed or Severe; the profile chart draws them as two
+lines and each flagged section says whether drops, the view or both caused
+it. Map data then adjusts it: wooded slopes and wide tracks lower the
 score, tunnels clear it, and bridges are confirmed or dismissed. Neighbouring
 flagged points are grouped into sections.
 
@@ -112,6 +122,8 @@ check for yourself.
 
 - **Terrain in Switzerland**: [swissALTI3D](https://www.swisstopo.admin.ch/en/height-model-swissalti3d)
   2 m elevation model, © swisstopo.
+- **Distant terrain for views**: the same global tiles as below, at about
+  30 m, everywhere.
 - **Terrain elsewhere**: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/),
   roughly 10 to 30 m. Good for steep mountainsides, blind to small cliffs;
   results are labelled as low confidence.

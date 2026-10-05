@@ -141,6 +141,53 @@
       ],
     },
     {
+      title: "Open views",
+      intro:
+        "Separate from drops: how much height the view shows, even from a flat and safe path. From each spot the app works out what ground is visible and how far below you it lies.",
+      knobs: [
+        {
+          group: "score",
+          key: "viewDepthM",
+          label: "Depth of the view",
+          unit: "m",
+          parts: COUNTS,
+          help: "How far below you the visible ground lies, across the width set below. A valley floor 400 m down counts for more than fields 150 m down.",
+        },
+        {
+          group: "score",
+          key: "viewArcDeg",
+          label: "Width of the view",
+          unit: "°",
+          step: 10,
+          help: "How much of the horizon has to show that depth. 90 means a quarter of the way round; lower it and a glimpse through a gap counts too.",
+        },
+        {
+          group: "score",
+          key: "viewFarWeight",
+          label: "Distant ground",
+          unit: "×",
+          step: 0.05,
+          help: "How much ground 2 to 8 km away counts compared with ground within 2 km. 0.5 means a plain 400 m below in the distance counts like 200 m nearby.",
+        },
+        {
+          group: "score",
+          key: "viewForestFactor",
+          label: "Forest",
+          unit: "×",
+          step: 0.05,
+          help: "The view score is multiplied by this where the map shows forest at the spot, since trees hide most of a view.",
+        },
+        {
+          group: "score",
+          key: "viewFactor",
+          label: "How much views count",
+          unit: "×",
+          step: 0.05,
+          help: "The view score is multiplied by this. 0 leaves views out altogether, which is the starting point for car, bus and train.",
+        },
+      ],
+    },
+    {
       title: "Sections",
       intro: "How scored points are grouped into the flagged sections that are listed and coloured.",
       knobs: [
@@ -381,7 +428,7 @@
           {tab.label}
         </button>
       {/each}
-      <span>Levels, drops, modifiers and sections are set separately for each. The rest is shared.</span>
+      <span>Levels, drops, modifiers, open views and sections are set separately for each. The rest is shared.</span>
     </div>
 
     {#each sections as section}

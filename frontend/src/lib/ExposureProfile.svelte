@@ -78,7 +78,11 @@
   }
 
   const elevationPath = $derived(path((i) => (points[i].metrics ? yElevation(points[i].metrics!.elevation) : null)));
-  const scorePath = $derived(path((i) => (points[i].score === null ? null : yScore(points[i].score!))));
+  // The score is the worse of two things, drawn as two lines: solid for the
+  // ground beside the route, dashed for the view. Older results have only the one.
+  const dropPath = $derived(path((i) => (points[i].score === null ? null : yScore(points[i].dropScore ?? points[i].score!))));
+  const viewPath = $derived(path((i) => (points[i].viewScore == null ? null : yScore(points[i].viewScore!))));
+  const hasViews = $derived(points.some((p) => (p.viewScore ?? 0) > 0));
   const kmTicks = $derived(niceTicks(0, analysis.lengthM / 1000, Math.max(2, Math.floor(plotW / 90))));
   const elevationTicks = $derived(niceTicks(elevationRange.min, elevationRange.max, 4));
 
@@ -165,7 +169,17 @@
     <text class="label" x={M.left} y={SCORE_TOP - 6}>Exposure score (0–100)</text>
 
     <path class="line" d={elevationPath} />
-    <path class="line" d={scorePath} />
+    <path class="line" d={dropPath} />
+    {#if hasViews}
+      <path class="line view" d={viewPath} />
+      <!-- Legend for the two score lines; told apart by dash, not colour. -->
+      <g transform="translate({M.left + plotW - 150}, {SCORE_TOP - 10})">
+        <line class="line" x1="0" x2="18" y1="0" y2="0" />
+        <text class="label" x="22" y="0" dominant-baseline="middle">drops</text>
+        <line class="line view" x1="66" x2="84" y1="0" y2="0" />
+        <text class="label" x="88" y="0" dominant-baseline="middle">open view</text>
+      </g>
+    {/if}
 
     <!-- The user's own marks, in ink rather than colour so they never read as model levels. -->
     {#each marks as mark}
@@ -208,7 +222,10 @@
       <line class="crosshair" x1={x(hovered.dist)} x2={x(hovered.dist)} y1={M.top} y2={yScore(0)} />
       {#if hovered.metrics}
         <circle class="point" cx={x(hovered.dist)} cy={yElevation(hovered.metrics.elevation)} r="4" />
-        <circle class="point" cx={x(hovered.dist)} cy={yScore(hovered.score ?? 0)} r="4" />
+        <circle class="point" cx={x(hovered.dist)} cy={yScore(hovered.dropScore ?? hovered.score ?? 0)} r="4" />
+        {#if hasViews && hovered.viewScore != null}
+          <circle class="point" cx={x(hovered.dist)} cy={yScore(hovered.viewScore)} r="4" />
+        {/if}
       {/if}
     {/if}
   </svg>
@@ -226,6 +243,14 @@
           Score {Math.round(hovered.score)}{#if hovered.rawScore != null && Math.round(hovered.rawScore) !== Math.round(hovered.score)}
             {" "}(terrain alone {Math.round(hovered.rawScore)}){/if}
         </span>
+        {#if (hovered.viewScore ?? 0) > 0}
+          <span>
+            Drops {Math.round(hovered.dropScore ?? 0)}, open view {Math.round(hovered.viewScore ?? 0)}
+            ({Math.round(hovered.viewDepthM ?? 0)} m down)
+          </span>
+        {:else if hovered.viewDepthM != null}
+          <span>View {Math.round(hovered.viewDepthM)} m down</span>
+        {/if}
         {#if hovered.context?.tunnel}<span>In a tunnel</span>{/if}
         {#if hovered.context?.forest}<span>Wooded slope below</span>{/if}
         {#if hovered.context?.wide}<span>Wide track</span>{/if}
@@ -298,6 +323,9 @@
   .mark-label {
     fill: var(--text);
     font-size: 11px;
+  }
+  .line.view {
+    stroke-dasharray: 5 4;
   }
   .crosshair {
     stroke: var(--text-faint);

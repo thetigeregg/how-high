@@ -41,6 +41,7 @@
     const labels: string[] = [];
     // On a no-go stretch the terrain details are beside the point.
     if (c?.noGo) return [`no-go: ${NO_GO[c.noGo]}`];
+    if (s.cause !== "drops") labels.push(`open view (${s.maxViewDepthM} m down)`);
     if (c?.bridge) labels.push("bridge");
     else if (s.possibleBridge) labels.push("bridge?");
     if (!c) return labels;
@@ -68,7 +69,9 @@
           <th class="num" title="Height lost down the fall line before the ground eases off">Fall</th>
           <th class="num" title="Steepness of the ground across the path">Side slope</th>
           <th>Drop</th>
-          <th title="From OpenStreetMap: forest and wide tracks lower the score, tunnels clear it">Context</th>
+          <th title="Whether an open view flagged this stretch, and what OpenStreetMap adds: forest and wide tracks lower the score, tunnels clear it">
+            Context
+          </th>
           <th title="What your own marks say about this stretch, or about a stretch that measures much the same">
             Your experience
           </th>

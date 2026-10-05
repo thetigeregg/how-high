@@ -9,27 +9,29 @@ import { bilinear, GridTerrain, type Terrain } from "./grid.js";
 // Mapzen/AWS open terrain tiles: a global mosaic (3DEP ~10 m in the US,
 // ~30 m SRTM-class data in most other places) encoded as RGB PNGs.
 const TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium";
-const ZOOM = 14;
+/** Zoom and grid spacing for measuring the ground right beside the route. */
+const NEAR = { zoom: 14, cellM: 10 };
+/** The same for distant terrain, where what matters is the shape of valleys and ridges. */
+export const FAR = { zoom: 12, cellM: 40 };
 const TILE_PX = 256;
-const WORLD_PX = TILE_PX * 2 ** ZOOM;
-const CELL_M = 10;
 const MAX_TILES = 900;
 const DOWNLOAD_CONCURRENCY = 8;
 
-const tileDir = path.join(config.demDir, "terrarium", String(ZOOM));
+const tileDir = (zoom: number) => path.join(config.demDir, "terrarium", String(zoom));
 
-function toPixel(lon: number, lat: number): [number, number] {
+function toPixel(lon: number, lat: number, zoom: number): [number, number] {
   const sin = Math.sin((lat * Math.PI) / 180);
-  const px = ((lon + 180) / 360) * WORLD_PX;
-  const py = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * WORLD_PX;
+  const worldPx = TILE_PX * 2 ** zoom;
+  const px = ((lon + 180) / 360) * worldPx;
+  const py = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldPx;
   return [px, py];
 }
 
-async function loadTile(tx: number, ty: number): Promise<Float32Array> {
-  const file = path.join(tileDir, String(tx), `${ty}.png`);
+async function loadTile(tx: number, ty: number, zoom: number): Promise<Float32Array> {
+  const file = path.join(tileDir(zoom), String(tx), `${ty}.png`);
   if (!fs.existsSync(file)) {
-    const res = await fetch(`${TILE_URL}/${ZOOM}/${tx}/${ty}.png`);
-    if (!res.ok) throw new Error(`Terrain tile download failed (${res.status}) for ${ZOOM}/${tx}/${ty}`);
+    const res = await fetch(`${TILE_URL}/${zoom}/${tx}/${ty}.png`);
+    if (!res.ok) throw new Error(`Terrain tile download failed (${res.status}) for ${zoom}/${tx}/${ty}`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(`${file}.part`, Buffer.from(await res.arrayBuffer()));
     fs.renameSync(`${file}.part`, file);
@@ -43,14 +45,19 @@ async function loadTile(tx: number, ty: number): Promise<Float32Array> {
 }
 
 /**
- * Global fallback terrain: fetches the tiles under the route and resamples
- * them onto a 10 m grid in the route's local metric projection.
+ * Terrain from the global tiles: fetches the tiles under and around the
+ * route and resamples them onto a grid in the route's metric projection. At
+ * the default detail this is the fallback for ground beside the route where
+ * there is no Swiss data; at `FAR` detail it is the distant terrain views are
+ * measured against.
  */
 export async function loadTerrariumTerrain(
   points: Array<[number, number]>,
   projection: Projection,
   buffer: number,
+  detail = NEAR,
 ): Promise<Terrain> {
+  const { zoom, cellM } = detail;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const [x, y] of points) {
     minX = Math.min(minX, x);
@@ -69,7 +76,7 @@ export async function loadTerrariumTerrain(
     projection.inverse(minX, maxY),
     projection.inverse(maxX, minY),
     projection.inverse(maxX, maxY),
-  ].map(([lon, lat]) => toPixel(lon, lat));
+  ].map(([lon, lat]) => toPixel(lon, lat, zoom));
   const tx0 = Math.floor(Math.min(...corners.map((c) => c[0])) / TILE_PX) ;
   const tx1 = Math.floor(Math.max(...corners.map((c) => c[0])) / TILE_PX);
   const ty0 = Math.floor(Math.min(...corners.map((c) => c[1])) / TILE_PX);
@@ -89,7 +96,7 @@ export async function loadTerrariumTerrain(
   const workers = Array.from({ length: DOWNLOAD_CONCURRENCY }, async () => {
     for (let job = jobs.pop(); job !== undefined; job = jobs.pop()) {
       const [tx, ty] = job;
-      const tile = await loadTile(tx, ty);
+      const tile = await loadTile(tx, ty, zoom);
       for (let row = 0; row < TILE_PX; row++) {
         mosaic.set(
           tile.subarray(row * TILE_PX, (row + 1) * TILE_PX),
@@ -100,14 +107,14 @@ export async function loadTerrariumTerrain(
   });
   await Promise.all(workers);
 
-  const width = Math.ceil((maxX - minX) / CELL_M);
-  const height = Math.ceil((maxY - minY) / CELL_M);
+  const width = Math.ceil((maxX - minX) / cellM);
+  const height = Math.ceil((maxY - minY) / cellM);
   const data = new Float32Array(width * height);
   for (let row = 0; row < height; row++) {
-    const y = maxY - (row + 0.5) * CELL_M;
+    const y = maxY - (row + 0.5) * cellM;
     for (let col = 0; col < width; col++) {
-      const [lon, lat] = projection.inverse(minX + (col + 0.5) * CELL_M, y);
-      const [px, py] = toPixel(lon, lat);
+      const [lon, lat] = projection.inverse(minX + (col + 0.5) * cellM, y);
+      const [px, py] = toPixel(lon, lat, zoom);
       const fx = px - tx0 * TILE_PX - 0.5;
       const fy = py - ty0 * TILE_PX - 0.5;
       const x0 = Math.min(Math.max(Math.floor(fx), 0), mosaicW - 2);
@@ -123,5 +130,5 @@ export async function loadTerrariumTerrain(
       );
     }
   }
-  return new GridTerrain("AWS Terrain Tiles (~10–30 m, global)", CELL_M, minX, maxY, width, height, data);
+  return new GridTerrain("AWS Terrain Tiles (~10–30 m, global)", cellM, minX, maxY, width, height, data);
 }

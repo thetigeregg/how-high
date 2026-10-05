@@ -46,6 +46,11 @@ const scoreSchema = z.object({
     dropWeight: z.number().min(0).max(1),
     mergeGapM: z.number().min(0).max(500),
     minLengthM: z.number().min(0).max(500),
+    viewDepthM: range(0, 3000),
+    viewArcDeg: z.number().min(10).max(360),
+    viewFarWeight: z.number().min(0).max(1),
+    viewForestFactor: z.number().min(0).max(1),
+    viewFactor: z.number().min(0).max(1),
 });
 
 export const settingsSchema = z.object({

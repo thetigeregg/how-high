@@ -2,11 +2,15 @@ import type { TerrainContext, TravelKind } from "../context/context.js";
 import { lv95, type Projection } from "../geo/projection.js";
 import type { TrackPoint } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
+import { measureView } from "./view.js";
 import { DEFAULT_MEASURE, measureTrack, type MeasureParams, type PointMetrics } from "./metrics.js";
 import {
   adjustScore,
   DEFAULT_PARAMS,
   scoreSide,
+  scoreView,
+  viewDepth,
+  type View,
   findRuns,
   LEVELS,
   levelOf,
@@ -33,6 +37,12 @@ export interface AnalysedPoint {
   rawScore: number | null;
   /** Null where map context was unavailable. */
   context: PointContext | null;
+  /** The part of the score that comes from the ground beside the route: drops, falls, side slope. */
+  dropScore: number | null;
+  /** The part that comes from how much height the view shows; see `viewDepthM`. */
+  viewScore: number | null;
+  /** Depth of the view down across the arc that counts, metres; null where the view was not measured. */
+  viewDepthM: number | null;
   /** Lowest and highest score when the track is shifted sideways by GPS error. */
   scoreLow: number | null;
   scoreHigh: number | null;
@@ -71,6 +81,9 @@ export interface Section {
   side: "left" | "right" | "both";
   dropTowards: string;
   possibleBridge: boolean;
+  /** What flagged this stretch: the ground beside the route, the view, or both. */
+  cause: "drops" | "view" | "both";
+  maxViewDepthM: number;
   /** Location of the worst point, with links for a visual check. */
   worst: { dist: number; lon: number; lat: number; elevation: number };
   links: { swisstopo: string | null; google: string };
@@ -104,8 +117,12 @@ export interface Analysis {
  * 3: train rides follow mapped track instead of the routing service's line.
  * 4: incomplete answers from the map servers are no longer used.
  * 5: the 10 m and 100 m drops are measured for each side separately.
+ * 6: the view from the route is measured.
  */
-export const MEASURE_VERSION = 5;
+export const MEASURE_VERSION = 6;
+
+/** The view changes slowly along a route, so it is measured only this often, metres. */
+const VIEW_EVERY_M = 25;
 
 /** How a stretch is travelled. Ferries are carried along but never scored. */
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
@@ -183,12 +200,15 @@ export interface MeasuredPoint {
   /** The same measurements with the track shifted left and right by the GPS error. */
   shifted: [PointMetrics | null, PointMetrics | null];
   context: PointContext | null;
+  /** The view from here; present only on the points where it was measured. */
+  view?: View | null;
 }
 
 function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
   let worstIndex = start;
   let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxDrop100M = 0, maxCrossSlopeDeg = 0, bridge = false;
   let known = 0, wooded = 0, wide = 0;
+  let maxViewDepthM = 0, byDrops = false, byView = false;
   const context = { forest: false, tunnel: false, bridge: false, wideTrack: false, sacGrade: null as number | null, aided: false, cliff: false, noGo: null as NoGoKind | null };
   for (let i = start; i <= end; i++) {
     const p = points[i];
@@ -212,6 +232,9 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
     maxDrop100M = Math.max(maxDrop100M, p.metrics.drop100);
     maxCrossSlopeDeg = Math.max(maxCrossSlopeDeg, p.metrics.crossSlopeDeg);
     bridge ||= p.metrics.bridgeGap > 0;
+    maxViewDepthM = Math.max(maxViewDepthM, p.viewDepthM ?? 0);
+    if ((p.dropScore ?? 0) >= params.thresholds[0]) byDrops = true;
+    if ((p.viewScore ?? 0) >= params.thresholds[0]) byView = true;
   }
   // Forest and track width describe the stretch as a whole, not a stray point.
   context.forest = wooded * 2 >= known && wooded > 0;
@@ -244,6 +267,8 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
     maxDrop30M: Math.round(maxDrop30M),
     maxDrop100M: Math.round(maxDrop100M),
     maxCrossSlopeDeg: Math.round(maxCrossSlopeDeg),
+    cause: byDrops && byView ? "both" : byView ? "view" : "drops",
+    maxViewDepthM: Math.round(maxViewDepthM),
     side,
     dropTowards,
     possibleBridge: bridge,
@@ -328,7 +353,9 @@ export function measurePoints(
   context: TerrainContext | undefined,
   params: MeasureParams,
   kindAt: (index: number) => TravelKind | null,
+  far?: Terrain,
 ): MeasuredPoint[] {
+  const viewEvery = Math.max(1, Math.round(VIEW_EVERY_M / (track.length > 1 ? track[1].dist - track[0].dist : 1)));
   const centre = measureTrack(terrain, track, 0, params);
   const left = measureTrack(terrain, track, params.gpsErrorM, params);
   const right = measureTrack(terrain, track, -params.gpsErrorM, params);
@@ -343,8 +370,17 @@ export function measurePoints(
       metrics,
       shifted: [left[i], right[i]],
       context: metrics && context ? describePoint(context, p, metrics, params.forestCheckM, kindAt(i)) : null,
+      // Counted from the start of the route, so the measured points do not depend on how it was cut into pieces.
+      ...(far && Math.round(p.dist / (track[1].dist - track[0].dist)) % viewEvery === 0
+        ? { view: viewFrom(terrain, far, p, context) }
+        : {}),
     };
   });
+}
+
+function viewFrom(near: Terrain, far: Terrain, p: TrackPoint, context: TerrainContext | undefined): View | null {
+  const depths = measureView(near, far, p.x, p.y);
+  return depths && { depths, wooded: context?.inForest(p.x, p.y) ?? false };
 }
 
 /** A side needs this much flagged length before it is worth recommending the other. */
@@ -416,6 +452,11 @@ function summariseSides(measurement: Measurement, scored: AnalysedPoint[], leg: 
   return summaries;
 }
 
+const UNSCORED = {
+  score: null, rawScore: null, dropScore: null, viewScore: null, viewDepthM: null, context: null,
+  scoreLow: null, scoreHigh: null, level: null, metrics: null,
+};
+
 /** Stand-in measurements for a no-go point that has no terrain data. */
 const FLAT: PointMetrics = {
   elevation: 0, slopeDeg: 0, crossSlopeDeg: 0, fallLeft: 0, fallRight: 0, drop10: 0, drop30: 0, drop100: 0,
@@ -442,6 +483,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
   const legs = measurement.legs ?? [{ mode: "hike" as const, label: "Hike", startM: 0, endM: lengthM }];
   const routeParams = params;
   let legIndex = 0;
+  let view: View | null = null;
 
   const points: AnalysedPoint[] = measurement.points.map((p) => {
     const { dist, lon, lat, context } = p;
@@ -453,24 +495,26 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     // runs, so the terrain measured there says nothing about the ride.
     const kind = TRAVEL_KIND[mode];
     const strayed = (kind === "road" || kind === "rail") && context !== null && !context.matched && !context.noGo;
-    if (mode === "ferry" || strayed) {
-      return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
-    }
+    if (mode === "ferry" || strayed) return { ...UNSCORED, dist, lon, lat };
     if (context?.noGo && noGo[context.noGo]) {
-      return { dist, lon, lat, score: 100, rawScore: 100, context, scoreLow: 100, scoreHigh: 100, level: "red", metrics: p.metrics ?? FLAT };
+      return { ...UNSCORED, dist, lon, lat, score: 100, rawScore: 100, dropScore: 100, context, scoreLow: 100, scoreHigh: 100, level: "red", metrics: p.metrics ?? FLAT };
     }
-    if (!p.metrics) {
-      return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
-    }
+    if (!p.metrics) return { ...UNSCORED, dist, lon, lat };
+    // The view is measured every so often; each point takes the latest one before it.
+    if (p.view !== undefined) view = p.view;
+    const viewScore = scoreView(view, params);
     // The terrain-only bridge guess is dropped where the map shows a path that is not a bridge.
     const disproved = context !== null && context.matched && !context.bridge;
     const settle = (m: PointMetrics) => (disproved ? { ...m, bridgeGap: 0 } : m);
     const metrics = settle(p.metrics);
     const rawScore = scorePoint(metrics, params);
-    const adjusted = adjustScore(rawScore, context, params);
+    const dropScore = adjustScore(rawScore, context, params);
+    // Whichever is worse decides: a wide view over a valley bothers on a safe path, and so does a drop in a forest.
+    const adjusted = Math.max(dropScore, viewScore);
+    // A view does not change if the line is a few metres off, so it sets a floor under every variant.
     const variants = [
       adjusted,
-      ...p.shifted.flatMap((m) => (m ? [adjustScore(scorePoint(settle(m), params), context, params)] : [])),
+      ...p.shifted.flatMap((m) => (m ? [Math.max(adjustScore(scorePoint(settle(m), params), context, params), viewScore)] : [])),
     ];
     return {
       dist,
@@ -478,6 +522,9 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
       lat,
       score: adjusted,
       rawScore,
+      dropScore,
+      viewScore,
+      viewDepthM: view ? viewDepth(view, params) : null,
       context,
       scoreLow: Math.min(...variants),
       scoreHigh: Math.max(...variants),

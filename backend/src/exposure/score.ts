@@ -1,4 +1,5 @@
 import type { PointMetrics } from "./metrics.js";
+import { VIEW_BANDS_M, VIEW_RAYS } from "./view.js";
 
 export type Level = "green" | "yellow" | "orange" | "red";
 export const LEVELS: Level[] = ["green", "yellow", "orange", "red"];
@@ -32,6 +33,19 @@ export interface ScoreParams {
   mergeGapM: number;
   /** Isolated blips shorter than this are dropped unless they reach the top level, metres. */
   minLengthM: number;
+  /**
+   * Open views: how far below you the visible ground must lie, across the
+   * arc below, for the view to start counting and to count in full.
+   */
+  viewDepthM: [number, number];
+  /** How wide the view down has to be, degrees of the horizon. */
+  viewArcDeg: number;
+  /** How much ground 2 to 8 km away counts compared with ground within 2 km. */
+  viewFarWeight: number;
+  /** Multiplier on the view score where the map shows forest at the spot. */
+  viewForestFactor: number;
+  /** Multiplier on the view score as a whole; 0 leaves views out. */
+  viewFactor: number;
 }
 
 /**
@@ -55,6 +69,13 @@ export const DEFAULT_ROAD_PARAMS: ScoreParams = {
   dropWeight: 0.75,
   mergeGapM: 100,
   minLengthM: 30,
+  viewDepthM: [250, 450],
+  viewArcDeg: 90,
+  viewFarWeight: 0.5,
+  viewForestFactor: 0.5,
+  // Off for rides until there is something to calibrate it against: from a
+  // train window in the mountains there is a view nearly everywhere.
+  viewFactor: 0,
 };
 
 export const DEFAULT_PARAMS: ScoreParams = {
@@ -73,6 +94,11 @@ export const DEFAULT_PARAMS: ScoreParams = {
   dropWeight: 0.75,
   mergeGapM: 30,
   minLengthM: 10,
+  viewDepthM: [250, 450],
+  viewArcDeg: 90,
+  viewFarWeight: 0.5,
+  viewForestFactor: 0.5,
+  viewFactor: 1,
 };
 
 function ramp(value: number, [low, high]: [number, number]): number {
@@ -122,6 +148,40 @@ export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS
   score += 10 * ramp(Math.abs(m.trackGradeDeg), params.trackGradeDeg);
   score = Math.max(score, 100 * ramp(m.bridgeGap, params.bridgeGapM));
   return Math.min(100, score);
+}
+
+/** What a place shows of the height it is at, as measured by `measureView`. */
+export interface View {
+  /** Depth of the lowest visible ground per direction and distance band; see `measureView`. */
+  depths: number[];
+  /** Whether the map shows forest at the spot, which would hide the view. */
+  wooded: boolean;
+}
+
+/**
+ * How deep the view down is across the widest arc that counts: with a 90°
+ * arc, the depth that a quarter of the horizon reaches or exceeds. Ground
+ * beyond 2 km counts for less, since a far-off plain is less present than a
+ * valley at your feet.
+ */
+export function viewDepth(view: View, params: ScoreParams = DEFAULT_PARAMS): number {
+  const bands = VIEW_BANDS_M.length;
+  const felt: number[] = [];
+  for (let ray = 0; ray < VIEW_RAYS; ray++) {
+    const within2km = view.depths[ray * bands + 1];
+    const within8km = view.depths[ray * bands + 2];
+    felt.push(Math.max(within2km, within8km * params.viewFarWeight));
+  }
+  felt.sort((a, b) => b - a);
+  const rays = Math.min(VIEW_RAYS, Math.max(1, Math.round((params.viewArcDeg / 360) * VIEW_RAYS)));
+  return felt[rays - 1];
+}
+
+/** How much a place's view shows of its height, 0 (nothing) to 100. */
+export function scoreView(view: View | null | undefined, params: ScoreParams = DEFAULT_PARAMS): number {
+  if (!view || params.viewFactor === 0) return 0;
+  const score = 100 * ramp(viewDepth(view, params), params.viewDepthM) * params.viewFactor;
+  return view.wooded ? score * params.viewForestFactor : score;
 }
 
 /**

@@ -7,7 +7,8 @@ import { resample, type TrackPoint } from "../gpx/resample.js";
 import { logger } from "../logger.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
-import { loadTerrariumTerrain } from "../terrain/terrarium.js";
+import { FAR, loadTerrariumTerrain } from "../terrain/terrarium.js";
+import { VIEW_RADIUS_M } from "./view.js";
 import { MEASURE_VERSION, measurePoints, TRAVEL_KIND, type Leg, type LegMode, type MeasuredPoint, type Measurement, type Profile } from "./analyze.js";
 import { DEFAULT_MEASURE, type MeasureParams, type PointMetrics } from "./metrics.js";
 import type { NoGoKind, PointContext } from "./score.js";
@@ -235,7 +236,12 @@ export async function measureSource(
     // of the route is not held up asking again, and the background retry fills it in.
     const context: TerrainContext | undefined = quickContext && !mapContext ? undefined : await loadContext(piece, projection, spacing, swiss, quickContext);
     mapContext &&= context !== undefined;
-    const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[sourceLegs[legOf[from + i]].mode]);
+    // Coarse terrain for kilometres around, to measure what can be seen from the route.
+    const far = await loadTerrariumTerrain(xy, projection, VIEW_RADIUS_M + 200, FAR).catch((err) => {
+      logger.warn({ err: (err as Error).message }, "measuring without distant terrain; views are left out");
+      return undefined;
+    });
+    const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[sourceLegs[legOf[from + i]].mode], far);
     points.push(...measured.slice(start - from, end - from));
   }
 

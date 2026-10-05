@@ -88,6 +88,11 @@ export interface AnalysedPoint {
   score: number | null;
   /** Terrain-only score, before forest, tunnels and track width are applied. */
   rawScore?: number | null;
+  /** The part of the score from the ground beside the route, and the part from the view. */
+  dropScore: number | null;
+  viewScore: number | null;
+  /** Depth of the view down across the arc that counts, metres. */
+  viewDepthM: number | null;
   context?: PointContext | null;
   scoreLow: number | null;
   scoreHigh: number | null;
@@ -127,6 +132,9 @@ export interface Section {
   maxCrossSlopeDeg: number;
   side: "left" | "right" | "both";
   dropTowards: string;
+  /** What flagged this stretch: the ground beside the route, the view, or both. */
+  cause: "drops" | "view" | "both";
+  maxViewDepthM: number;
   /** Your own verdict on this stretch, if you marked it. */
   yourMark?: MarkKind | null;
   /** A marked stretch, here or on another hike, that measures much the same. */
@@ -204,6 +212,11 @@ export interface ScoreSettings {
     dropWeight: number;
     mergeGapM: number;
     minLengthM: number;
+    viewDepthM: Pair;
+    viewArcDeg: number;
+    viewFarWeight: number;
+    viewForestFactor: number;
+    viewFactor: number;
 }
 
 export interface Settings {
