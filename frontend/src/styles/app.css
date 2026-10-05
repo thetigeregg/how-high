@@ -1,0 +1,59 @@
+:root {
+  --bg: #ffffff;
+  --bg-elevated: #f4f4f5;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --text-faint: #a1a1aa;
+  --border: #e4e4e7;
+  --border-subtle: #ececee;
+  --accent: #2563eb;
+  --accent-green: #16a34a;
+  --time-color: #b45309;
+  --error: #dc2626;
+  --hover-bg: #f5f5f5;
+  color-scheme: light;
+}
+
+/* System/auto mode: only applies when no explicit theme has been chosen. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0a;
+    --bg-elevated: #111111;
+    --text: #eeeeee;
+    --text-muted: #999999;
+    --text-faint: #666666;
+    --border: #333333;
+    --border-subtle: #1f1f1f;
+    --time-color: #f59e0b;
+    --error: #f87171;
+    --hover-bg: #161616;
+    color-scheme: dark;
+  }
+}
+
+/* Explicit dark mode: wins regardless of system preference. */
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --bg-elevated: #111111;
+  --text: #eeeeee;
+  --text-muted: #999999;
+  --text-faint: #666666;
+  --border: #333333;
+  --border-subtle: #1f1f1f;
+  --time-color: #f59e0b;
+  --error: #f87171;
+  --hover-bg: #161616;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}

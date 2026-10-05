@@ -1,0 +1,9 @@
+# Local-dev-only overrides, auto-merged by `docker compose` and never seen by
+# Portainer (which points only at docker-compose.yml). The persistent data path
+# itself is controlled by the DATA_PATH env var (see .env.example). This file
+# just adds a host port on the backend for direct curl/debugging during local
+# iteration.
+services:
+  how-high-backend:
+    ports:
+      - "3000:3000"

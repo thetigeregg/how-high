@@ -1,0 +1,38 @@
+services:
+  how-high-backend:
+    build:
+      context: ./backend
+      # Some hosts' default Docker bridge network has broken/stale NAT rules
+      # (seen on the deploy NAS — apk/npm couldn't resolve DNS at all during
+      # build). host networking for the build phase sidesteps that entirely
+      # rather than depending on the bridge working.
+      network: host
+    container_name: how-high-backend
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Zurich}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+    networks:
+      - how-high-internal
+
+  how-high-frontend:
+    build:
+      context: ./frontend
+      network: host
+    container_name: how-high-frontend
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Zurich}
+    depends_on:
+      - how-high-backend
+    networks:
+      - how-high-internal
+    ports:
+      - "${FRONTEND_PORT:-8421}:80"
+
+networks:
+  how-high-internal:
+    driver: bridge
