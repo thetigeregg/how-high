@@ -62,7 +62,13 @@ travelled, not which line it follows. The app asks Google's Routes API for
 the route and scores that, so it is Google's current suggestion and can
 differ from what was on screen when the link was shared. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
-or road on the map. Google does not accept stops in between for public
+or road on the map.
+
+Google's line for a train ride is often a rough sketch that cuts across the
+terrain, so only its two ends are trusted: the ride is traced along the
+mapped track between them. Where no connected track is found, Google's line
+is kept and any stretch of it with no track beside it is shown as not
+scored rather than rated on terrain the train never crosses. Google does not accept stops in between for public
 transport, so such a route is fetched stop to stop and joined.
 
 A long route downloads terrain for its whole length the first time, about

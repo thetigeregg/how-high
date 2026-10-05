@@ -62,7 +62,10 @@ async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): 
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { elements } = (await res.json()) as { elements: OsmElement[] };
+    const { elements, remark } = (await res.json()) as { elements: OsmElement[]; remark?: string };
+    // A query that runs out of time or memory still answers 200, with whatever
+    // it had gathered so far and a remark saying so. Half an answer is worse than none.
+    if (remark) throw new Error(`incomplete answer: ${remark.slice(0, 120)}`);
     if (endpoint === SWISS_ENDPOINT && !coversLine(elements)) throw new Error("area not covered");
     return elements;
   } catch (err) {
@@ -81,15 +84,26 @@ async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): 
  * with a generous timeout. In quick mode all are asked at once and the first answer within a
  * few seconds wins, so an upload is never held up for long.
  */
-export async function fetchOsm(
+export function fetchOsm(
   line: Array<[number, number]>,
   bbox: [number, number, number, number],
   swiss: boolean,
   quick = false,
 ): Promise<OsmElement[]> {
+  return overpass(query(line, bbox), swiss, quick);
+}
+
+/** Railway tracks within `radiusM` of a lon/lat line, with the node ids needed to join them up. */
+export function fetchRailways(line: Array<[number, number]>, radiusM: number, swiss: boolean, quick = false): Promise<OsmElement[]> {
+  const around = `around:${radiusM},${line.map(([lon, lat]) => `${lat.toFixed(4)},${lon.toFixed(4)}`).join(",")}`;
+  return overpass(`[out:json][timeout:25];way(${around})[railway~"^(rail|narrow_gauge|light_rail|tram|funicular|subway)$"];out geom;`, swiss, quick);
+}
+
+/** Runs one Overpass query, answering from the on-disk cache when it has been run before. */
+async function overpass(data: string, swiss: boolean, quick: boolean): Promise<OsmElement[]> {
   const ENDPOINTS = swiss ? [SWISS_ENDPOINT, ...WORLD_ENDPOINTS] : WORLD_ENDPOINTS;
-  const data = query(line, bbox);
-  const file = path.join(cacheDir, `${createHash("sha1").update(data).digest("hex")}.json`);
+  // The prefix is bumped to abandon everything cached so far (2: incomplete answers used to be kept).
+  const file = path.join(cacheDir, `${createHash("sha1").update(`2:${data}`).digest("hex")}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf-8")) as OsmElement[];
 
   const body = new URLSearchParams({ data });

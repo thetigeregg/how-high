@@ -100,8 +100,10 @@ export interface Analysis {
  * Raised whenever measuring itself changes (not just the settings), so stored
  * measurements taken the old way are taken again.
  * 2: forests mapped as multipolygons are no longer missed.
+ * 3: train rides follow mapped track instead of the routing service's line.
+ * 4: incomplete answers from the map servers are no longer used.
  */
-export const MEASURE_VERSION = 2;
+export const MEASURE_VERSION = 4;
 
 /** How a stretch is travelled. Ferries are carried along but never scored. */
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";

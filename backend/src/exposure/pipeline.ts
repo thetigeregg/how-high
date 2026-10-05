@@ -1,5 +1,6 @@
 import { buildContext, type TerrainContext } from "../context/context.js";
-import { fetchOsm } from "../context/osm.js";
+import { fetchOsm, fetchRailways } from "../context/osm.js";
+import { followTrack } from "../context/railmatch.js";
 import { localProjection, lv95, type Projection } from "../geo/projection.js";
 import type { GpxPoint, GpxTrack } from "../gpx/parse.js";
 import { resample, type TrackPoint } from "../gpx/resample.js";
@@ -44,10 +45,17 @@ const SPACING: Record<Profile, [number, number]> = { hike: [5, 15], road: [10, 2
 // Long routes are measured in pieces so only the terrain and map data for one
 // piece is in memory at a time. Pieces overlap so that measurements which
 // look along the track (path grade, bridges) are not cut off at the joins.
-const CHUNK_POINTS = 1500;
+// Pieces are kept short because the forest for each is asked for by bounding
+// box, and a big box over wooded country is more than the map servers answer in time.
+const CHUNK_POINTS = 500;
 const CHUNK_OVERLAP = 20;
 /** Spacing of the simplified line sent to OpenStreetMap, metres. */
 const OSM_LINE_STEP_M = 100;
+/** How far around a train's rough line mapped track is fetched; the real track can loop well away from it. */
+const RAIL_CORRIDOR_M = 3000;
+/** The rough line is thinned to about this spacing for that request, and cut into pieces of this many points. */
+const RAIL_LINE_STEP_M = 1000;
+const RAIL_LINE_POINTS = 40;
 
 const NO_CONTEXT: PointContext = {
   forest: false, matched: false, tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false, cliff: false, noGo: null,
@@ -90,6 +98,39 @@ async function loadContext(
     logger.warn({ err: (err as Error).message }, "measuring without map context");
     return undefined;
   }
+}
+
+/** Rough distance in metres between two lon/lat points. */
+function gap(a: GpxPoint, b: GpxPoint): number {
+  return Math.hypot((a.lat - b.lat) * 111_320, (a.lon - b.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180));
+}
+
+/**
+ * Replaces the rough line of a train ride with its course along mapped
+ * track. Returns the leg unchanged when the map shows no connected track
+ * between its ends; throws when the map could not be asked at all.
+ */
+async function onTrack(leg: SourceLeg, swiss: boolean, quick: boolean): Promise<SourceLeg> {
+  const thinned: GpxPoint[] = [leg.points[0]];
+  for (const p of leg.points) {
+    // Long straight strokes of the sketch are filled in so the corridor has no holes.
+    let last = thinned[thinned.length - 1];
+    for (let d = gap(last, p); d > RAIL_LINE_STEP_M; d = gap(last, p)) {
+      const t = RAIL_LINE_STEP_M / d;
+      last = { lat: last.lat + (p.lat - last.lat) * t, lon: last.lon + (p.lon - last.lon) * t };
+      thinned.push(last);
+    }
+  }
+  thinned.push(leg.points[leg.points.length - 1]);
+
+  const railways = [];
+  for (let i = 0; i < thinned.length - 1; i += RAIL_LINE_POINTS) {
+    const piece = thinned.slice(i, i + RAIL_LINE_POINTS + 1).map((p): [number, number] => [p.lon, p.lat]);
+    railways.push(...(await fetchRailways(piece, RAIL_CORRIDOR_M, swiss, quick)));
+  }
+  const course = followTrack(leg.points, railways);
+  if (!course) logger.warn({ leg: leg.label }, "no connected track found; keeping the routing service's line");
+  return course ? { ...leg, points: course } : leg;
 }
 
 /**
@@ -138,12 +179,29 @@ export async function measureSource(
     ? lv95
     : localProjection((Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2);
   const spacing = SPACING[source.profile][swiss ? 0 : 1];
+  let mapContext = true;
+
+  const sourceLegs: SourceLeg[] = [];
+  for (const leg of source.legs) {
+    // Funiculars and lifts are no-gos whatever their course; only real train rides are worth tracing.
+    if (leg.mode !== "rail" || leg.noGo || (quickContext && !mapContext)) {
+      sourceLegs.push(leg);
+      continue;
+    }
+    try {
+      sourceLegs.push(await onTrack(leg, swiss, quickContext));
+    } catch (err) {
+      logger.warn({ leg: leg.label, err: (err as Error).message }, "could not fetch track for a train ride");
+      mapContext = false;
+      sourceLegs.push(leg);
+    }
+  }
 
   // Each leg is resampled on its own so that leg boundaries fall on points.
   const track: TrackPoint[] = [];
   const legs: Leg[] = [];
   const legOf: number[] = [];
-  for (const [index, leg] of source.legs.entries()) {
+  for (const [index, leg] of sourceLegs.entries()) {
     const line = leg.points.map(({ lon, lat }) => projection.forward(lon, lat));
     let piece: TrackPoint[];
     try {
@@ -163,7 +221,6 @@ export async function measureSource(
 
   const points: MeasuredPoint[] = [];
   let terrainInfo: Measurement["terrain"] | null = null;
-  let mapContext = true;
   for (let start = 0; start < track.length; start += CHUNK_POINTS) {
     const end = Math.min(track.length, start + CHUNK_POINTS);
     const from = Math.max(0, start - CHUNK_OVERLAP);
@@ -178,7 +235,7 @@ export async function measureSource(
     // of the route is not held up asking again, and the background retry fills it in.
     const context: TerrainContext | undefined = quickContext && !mapContext ? undefined : await loadContext(piece, projection, spacing, swiss, quickContext);
     mapContext &&= context !== undefined;
-    const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[source.legs[legOf[from + i]].mode]);
+    const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[sourceLegs[legOf[from + i]].mode]);
     points.push(...measured.slice(start - from, end - from));
   }
 
@@ -190,7 +247,7 @@ export async function measureSource(
 
   measureBridgeDecks(points);
   for (const [i, p] of points.entries()) {
-    const { noGo } = source.legs[legOf[i]];
+    const { noGo } = sourceLegs[legOf[i]];
     if (noGo) p.context = { ...(p.context ?? NO_CONTEXT), noGo };
   }
 

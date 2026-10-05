@@ -31,6 +31,8 @@ export interface TerrainContext {
 export interface OsmElement {
   type: "way" | "relation";
   tags?: Record<string, string>;
+  /** Node ids of a way, parallel to `geometry`. */
+  nodes?: number[];
   // Overpass leaves null gaps where a node lies outside what it returned.
   geometry?: Array<{ lat: number; lon: number } | null>;
   members?: Array<{ type: string; role: string; geometry?: Array<{ lat: number; lon: number } | null> }>;
