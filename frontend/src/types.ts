@@ -71,7 +71,26 @@ export interface Analysis {
   points: AnalysedPoint[];
 }
 
+export type MarkKind = "fine" | "uneasy" | "bad" | "turned_back";
+
+/** How a stretch of the hike felt in reality; a point when startM equals endM. */
+export interface Mark {
+  id: number;
+  kind: MarkKind;
+  startM: number;
+  endM: number;
+  note: string | null;
+  createdAt: string;
+}
+
+/** A stretch of the route, in metres from the start. */
+export interface Range {
+  startM: number;
+  endM: number;
+}
+
 export interface AnalysisDetail {
   summary: AnalysisSummary;
+  marks: Mark[];
   result: Analysis;
 }

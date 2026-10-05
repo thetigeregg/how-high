@@ -1,11 +1,13 @@
 <script lang="ts">
-  import type { Analysis, Level } from "../types.js";
+  import type { Analysis, Level, Mark, Range } from "../types.js";
   import { LEVEL_COLOR, LEVEL_LABEL } from "./levels.js";
 
   let {
     analysis,
     levels,
     hoverIndex,
+    selection,
+    marks,
     onhover,
     onselect,
   }: {
@@ -13,12 +15,19 @@
     levels: Array<Level | null>;
     hoverIndex: number | null;
     onhover: (index: number | null) => void;
-    /** Called with a section index when a flagged band is clicked. */
-    onselect: (section: number) => void;
+    selection: Range | null;
+    marks: Mark[];
+    /**
+     * Called when a stretch is chosen: by dragging, by clicking a flagged band
+     * (the whole section), or by clicking elsewhere (a single point).
+     */
+    onselect: (range: Range) => void;
   } = $props();
 
   // Two stacked panels on one distance axis: elevation above, score below.
-  const M = { left: 46, right: 12, top: 10 };
+  // The top margin holds the lane the user's own marks are drawn in.
+  const M = { left: 46, right: 12, top: 26 };
+  const MARK_LANE_Y = 6;
   const ELEVATION_H = 150;
   const GAP = 26;
   const SCORE_H = 80;
@@ -84,26 +93,56 @@
     return Math.min(points.length - 1, Math.max(0, Math.round(dist / analysis.spacingM)));
   }
 
-  function sectionAt(index: number): number {
-    const dist = points[index].dist;
-    return analysis.sections.findIndex((s) => dist >= s.startM && dist <= s.endM);
+  // Index range being dragged out, before it becomes the selection.
+  let drag = $state<{ from: number; to: number } | null>(null);
+  const preview = $derived<Range | null>(
+    drag
+      ? { startM: points[Math.min(drag.from, drag.to)].dist, endM: points[Math.max(drag.from, drag.to)].dist }
+      : selection,
+  );
+
+  function finishDrag() {
+    if (!drag) return;
+    const from = Math.min(drag.from, drag.to);
+    const to = Math.max(drag.from, drag.to);
+    drag = null;
+    if (to > from) {
+      onselect({ startM: points[from].dist, endM: points[to].dist });
+      return;
+    }
+    const dist = points[from].dist;
+    const section = analysis.sections.find((s) => dist >= s.startM && dist <= s.endM);
+    onselect(section ? { startM: section.startM, endM: section.endM } : { startM: dist, endM: dist });
   }
+
+  const MARK_LABEL: Record<Mark["kind"], string> = {
+    fine: "Fine",
+    uneasy: "Uneasy",
+    bad: "Bad",
+    turned_back: "Turned back",
+  };
 </script>
 
 <div class="profile" bind:clientWidth={width}>
-  <!-- Pointer-only shortcut: the section table below offers the same selection by keyboard. -->
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <!-- Pointer-only: the section table below offers selection by keyboard. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <svg
     {width}
     height={HEIGHT}
     role="img"
     aria-label="Elevation and exposure score along the route"
-    onpointermove={(e) => onhover(indexAt(e))}
-    onpointerleave={() => onhover(null)}
-    onclick={(e) => {
-      const section = sectionAt(indexAt(e as unknown as PointerEvent));
-      if (section >= 0) onselect(section);
+    onpointerdown={(e) => {
+      (e.currentTarget as SVGElement).setPointerCapture(e.pointerId);
+      drag = { from: indexAt(e), to: indexAt(e) };
     }}
+    onpointermove={(e) => {
+      const index = indexAt(e);
+      onhover(index);
+      if (drag) drag.to = index;
+    }}
+    onpointerup={finishDrag}
+    onpointercancel={() => (drag = null)}
+    onpointerleave={() => onhover(null)}
   >
     <!-- Flagged sections: a tint through both panels plus a solid strip between them. -->
     {#each analysis.sections as s}
@@ -129,6 +168,39 @@
 
     <path class="line" d={elevationPath} />
     <path class="line" d={scorePath} />
+
+    <!-- The user's own marks, in ink rather than colour so they never read as model levels. -->
+    {#each marks as mark}
+      {#if mark.kind === "turned_back"}
+        <line class="turned-back" x1={x(mark.startM)} x2={x(mark.startM)} y1={MARK_LANE_Y} y2={yScore(0)} />
+        <text class="mark-label" x={x(mark.startM) + 4} y={MARK_LANE_Y + 8}>↩ turned back</text>
+      {:else}
+        <rect
+          class="mark {mark.kind}"
+          x={x(mark.startM) - (mark.endM === mark.startM ? 3 : 0)}
+          y={MARK_LANE_Y}
+          width={Math.max(6, x(mark.endM) - x(mark.startM))}
+          height="8"
+          rx="2"
+        >
+          <title>{MARK_LABEL[mark.kind]}: km {(mark.startM / 1000).toFixed(2)}–{(mark.endM / 1000).toFixed(2)}</title>
+        </rect>
+      {/if}
+    {/each}
+
+    {#if preview}
+      {#if preview.endM > preview.startM}
+        <rect
+          class="selection"
+          x={x(preview.startM)}
+          y={M.top}
+          width={x(preview.endM) - x(preview.startM)}
+          height={yScore(0) - M.top}
+        />
+      {:else}
+        <line class="selection" x1={x(preview.startM)} x2={x(preview.startM)} y1={M.top} y2={yScore(0)} />
+      {/if}
+    {/if}
 
     {#each kmTicks as t}
       <text class="tick" x={x(t * 1000)} y={HEIGHT - 6} text-anchor="middle">{t} km</text>
@@ -172,6 +244,7 @@
     display: block;
     cursor: crosshair;
     touch-action: pan-y;
+    user-select: none;
   }
   .grid {
     stroke: var(--border-subtle);
@@ -193,6 +266,34 @@
     stroke: var(--text);
     stroke-width: 2;
     stroke-linejoin: round;
+  }
+  .selection {
+    fill: var(--accent);
+    fill-opacity: 0.12;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+  }
+  .mark {
+    stroke: var(--text);
+    stroke-width: 1.5;
+  }
+  .mark.fine {
+    fill: var(--bg);
+  }
+  .mark.uneasy {
+    fill: var(--text-faint);
+  }
+  .mark.bad {
+    fill: var(--text);
+  }
+  .turned-back {
+    stroke: var(--text);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+  .mark-label {
+    fill: var(--text);
+    font-size: 11px;
   }
   .crosshair {
     stroke: var(--text-faint);

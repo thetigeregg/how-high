@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { Section } from "../types.js";
+  import type { Range, Section } from "../types.js";
   import LevelBadge from "./LevelBadge.svelte";
 
   let {
     sections,
     selected,
     onselect,
-  }: { sections: Section[]; selected: number | null; onselect: (index: number) => void } = $props();
+  }: { sections: Section[]; selected: Range | null; onselect: (index: number) => void } = $props();
 
   const km = (m: number) => (m / 1000).toFixed(2);
 </script>
@@ -30,7 +30,7 @@
       </thead>
       <tbody>
         {#each sections as s, i}
-          <tr class:selected={i === selected} onclick={() => onselect(i)}>
+          <tr class:selected={selected?.startM === s.startM && selected?.endM === s.endM} onclick={() => onselect(i)}>
             <td><LevelBadge level={s.level} /></td>
             <td class="num">{km(s.startM)}</td>
             <td class="num">{s.lengthM} m</td>

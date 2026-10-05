@@ -1,6 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { deleteAnalysis, fetchAnalyses, fetchAnalysis, updateAnalysis, uploadGpx } from "./api.js";
+  import {
+    createMark,
+    deleteAnalysis,
+    deleteMark,
+    fetchAnalyses,
+    fetchAnalysis,
+    updateAnalysis,
+    uploadGpx,
+  } from "./api.js";
   import ExposureProfile from "./lib/ExposureProfile.svelte";
   import HikeLibrary from "./lib/HikeLibrary.svelte";
   import LevelBadge from "./lib/LevelBadge.svelte";
@@ -8,7 +16,7 @@
   import RouteMap from "./lib/RouteMap.svelte";
   import SectionList from "./lib/SectionList.svelte";
   import Upload from "./lib/Upload.svelte";
-  import type { AnalysisDetail, AnalysisSummary, Rating } from "./types.js";
+  import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating } from "./types.js";
 
   let analyses = $state<AnalysisSummary[]>([]);
   let detail = $state<AnalysisDetail | null>(null);
@@ -17,7 +25,8 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let hoverIndex = $state<number | null>(null);
-  let focusSection = $state<number | null>(null);
+  // The stretch (or single point) currently picked on the chart, map or table.
+  let selection = $state<Range | null>(null);
 
   const levels = $derived(detail ? pointLevels(detail.result) : []);
   const ratings: Array<{ value: Rating; label: string }> = [
@@ -37,8 +46,10 @@
 
   async function select(id: number) {
     selectedId = id;
+    // Keeps the open hike across reloads and makes it linkable.
+    history.replaceState(null, "", `#${id}`);
     hoverIndex = null;
-    focusSection = null;
+    selection = null;
     loading = true;
     await run(async () => {
       const loaded = await fetchAnalysis(id);
@@ -69,6 +80,46 @@
     void run(async () => replaceSummary(await updateAnalysis(id, { rating: current === rating ? null : rating })));
   }
 
+  const markKinds: Array<{ value: MarkKind; label: string }> = [
+    { value: "fine", label: "Fine" },
+    { value: "uneasy", label: "Uneasy" },
+    { value: "bad", label: "Bad" },
+    { value: "turned_back", label: "Turned back here" },
+  ];
+  const markLabel: Record<MarkKind, string> = {
+    fine: "Fine",
+    uneasy: "Uneasy",
+    bad: "Bad",
+    turned_back: "Turned back",
+  };
+  const kmRange = (r: Range) =>
+    r.endM > r.startM
+      ? `km ${(r.startM / 1000).toFixed(2)}–${(r.endM / 1000).toFixed(2)} (${Math.round(r.endM - r.startM)} m)`
+      : `km ${(r.startM / 1000).toFixed(2)}`;
+
+  function addMark(kind: MarkKind) {
+    if (!detail || !selection) return;
+    const id = detail.summary.id;
+    // Turning back happens at one place: the start of whatever is selected.
+    const range = kind === "turned_back" ? { startM: selection.startM, endM: selection.startM } : selection;
+    void run(async () => {
+      const mark = await createMark(id, kind, range);
+      if (detail?.summary.id === id) {
+        detail = { ...detail, marks: [...detail.marks, mark].sort((a, b) => a.startM - b.startM) };
+      }
+      selection = null;
+    });
+  }
+
+  function removeMark(mark: Mark) {
+    if (!detail) return;
+    const id = detail.summary.id;
+    void run(async () => {
+      await deleteMark(id, mark.id);
+      if (detail?.summary.id === id) detail = { ...detail, marks: detail.marks.filter((m) => m.id !== mark.id) };
+    });
+  }
+
   function remove() {
     if (!detail || !confirm(`Delete "${detail.summary.name}"?`)) return;
     const { id } = detail.summary;
@@ -84,7 +135,8 @@
   onMount(() => {
     void run(async () => {
       analyses = await fetchAnalyses();
-      if (analyses.length > 0) await select(analyses[0].id);
+      const linked = analyses.find((a) => a.id === Number(location.hash.slice(1)));
+      if (analyses.length > 0) await select((linked ?? analyses[0]).id);
     });
   });
 </script>
@@ -150,9 +202,16 @@
       </div>
 
       <div class="map">
-        <RouteMap analysis={result} {levels} {hoverIndex} {focusSection} onhover={(i) => (hoverIndex = i)} />
-        {#if focusSection !== null}
-          <button type="button" class="reset" onclick={() => (focusSection = null)}>Show whole route</button>
+        <RouteMap
+          analysis={result}
+          {levels}
+          {hoverIndex}
+          focus={selection}
+          onhover={(i) => (hoverIndex = i)}
+          onpick={(i) => (selection = { startM: result.points[i].dist, endM: result.points[i].dist })}
+        />
+        {#if selection}
+          <button type="button" class="reset" onclick={() => (selection = null)}>Show whole route</button>
         {/if}
       </div>
 
@@ -161,14 +220,50 @@
           analysis={result}
           {levels}
           {hoverIndex}
+          {selection}
+          marks={detail.marks}
           onhover={(i) => (hoverIndex = i)}
-          onselect={(i) => (focusSection = i)}
+          onselect={(range) => (selection = range)}
         />
+        <div class="marking">
+          {#if selection}
+            <span>How was <strong>{kmRange(selection)}</strong>?</span>
+            {#each markKinds as kind}
+              <button type="button" onclick={() => addMark(kind.value)}>{kind.label}</button>
+            {/each}
+            <button type="button" class="quiet" onclick={() => (selection = null)}>Cancel</button>
+          {:else}
+            <span class="hint">
+              Drag across the chart to pick a stretch, or click a point or flagged section, then say how it felt.
+            </span>
+          {/if}
+        </div>
       </section>
+
+      {#if detail.marks.length > 0}
+        <section>
+          <h3>Your marks</h3>
+          <ul class="marks">
+            {#each detail.marks as mark (mark.id)}
+              <li>
+                <button type="button" class="quiet" onclick={() => (selection = { startM: mark.startM, endM: mark.endM })}>
+                  <strong>{markLabel[mark.kind]}</strong>
+                  {kmRange(mark)}
+                </button>
+                <button type="button" class="quiet" aria-label="Remove mark" onclick={() => removeMark(mark)}>Remove</button>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
 
       <section>
         <h3>Flagged sections</h3>
-        <SectionList sections={result.sections} selected={focusSection} onselect={(i) => (focusSection = i)} />
+        <SectionList
+          sections={result.sections}
+          selected={selection}
+          onselect={(i) => (selection = { startM: result.sections[i].startM, endM: result.sections[i].endM })}
+        />
       </section>
     {:else if loading}
       <p class="placeholder">Loading…</p>
@@ -306,6 +401,40 @@
     top: 0.6rem;
     left: 0.6rem;
     background: var(--bg);
+  }
+  .marking {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2.2rem;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+  }
+  .hint {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  button.quiet {
+    border-color: transparent;
+    background: none;
+    color: var(--text-muted);
+  }
+  .marks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .marks li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .marks strong {
+    color: var(--text);
   }
   .error {
     margin: 0;

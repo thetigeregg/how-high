@@ -2,22 +2,25 @@
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
   import { onMount } from "svelte";
-  import type { Analysis, Level } from "../types.js";
+  import type { Analysis, Level, Range } from "../types.js";
   import { LEVEL_COLOR, NO_DATA_COLOR } from "./levels.js";
 
   let {
     analysis,
     levels,
     hoverIndex,
-    focusSection,
+    focus,
     onhover,
+    onpick,
   }: {
     analysis: Analysis;
     levels: Array<Level | null>;
     hoverIndex: number | null;
-    /** Index of the section to zoom to, or null for the whole route. */
-    focusSection: number | null;
+    /** Stretch to zoom to, or null for the whole route. */
+    focus: Range | null;
     onhover: (index: number | null) => void;
+    /** Called with a point index when the route is clicked. */
+    onpick: (index: number) => void;
   } = $props();
 
   let container: HTMLDivElement;
@@ -113,7 +116,7 @@
     map.on("load", () => (ready = true));
     map.on("mousemove", "route-casing", (e) => onhover(nearestIndex(e.lngLat)));
     map.on("mouseleave", "route-casing", () => onhover(null));
-    map.on("click", "route-casing", (e) => onhover(nearestIndex(e.lngLat)));
+    map.on("click", "route-casing", (e) => onpick(nearestIndex(e.lngLat)));
 
     const dot = document.createElement("div");
     dot.className = "route-marker";
@@ -131,10 +134,9 @@
 
   $effect(() => {
     if (!ready || !map) return;
-    const section = focusSection === null ? null : analysis.sections[focusSection];
-    if (section) {
-      const from = Math.round(section.startM / analysis.spacingM);
-      const to = Math.min(analysis.points.length - 1, Math.round(section.endM / analysis.spacingM));
+    if (focus) {
+      const from = Math.round(focus.startM / analysis.spacingM);
+      const to = Math.min(analysis.points.length - 1, Math.round(focus.endM / analysis.spacingM));
       map.fitBounds(boundsOf(from, to), { padding: 80, maxZoom: 16.5, duration: 600 });
     } else {
       map.fitBounds(boundsOf(0, analysis.points.length - 1), { padding: 40, duration: 0 });

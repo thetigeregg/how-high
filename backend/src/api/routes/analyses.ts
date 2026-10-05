@@ -11,6 +11,15 @@ const patchSchema = z.object({
   rating: z.enum(["fine", "uneasy", "bad"]).nullable().optional(),
 });
 
+const markSchema = z
+  .object({
+    kind: z.enum(["fine", "uneasy", "bad", "turned_back"]),
+    startM: z.number().nonnegative(),
+    endM: z.number().nonnegative(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .refine((mark) => mark.endM >= mark.startM, { message: "endM must not be before startM" });
+
 const idSchema = z.coerce.number().int().positive();
 
 interface AnalysisRow {
@@ -23,6 +32,26 @@ interface AnalysisRow {
   terrain_source: string;
   confidence: string;
   rating: string | null;
+}
+
+interface MarkRow {
+  id: number;
+  kind: string;
+  start_m: number;
+  end_m: number;
+  note: string | null;
+  created_at: string;
+}
+
+function serializeMark(row: MarkRow) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    startM: row.start_m,
+    endM: row.end_m,
+    note: row.note,
+    createdAt: row.created_at,
+  };
 }
 
 const SUMMARY_COLUMNS = "id, name, created_at, length_m, level, max_score, terrain_source, confidence, rating";
@@ -95,10 +124,44 @@ export function registerAnalysesRoute(app: FastifyInstance) {
           | undefined)
       : undefined;
     if (!row) return reply.status(404).send({ error: "not found" });
+    const marks = app.db
+      .prepare("SELECT * FROM marks WHERE analysis_id = ? ORDER BY start_m, id")
+      .all(row.id) as MarkRow[];
     // The stored JSON is spliced in as-is rather than parsed and re-serialised.
     return reply
       .type("application/json")
-      .send(`{"summary":${JSON.stringify(serialize(row))},"result":${row.result}}`);
+      .send(
+        `{"summary":${JSON.stringify(serialize(row))},"marks":${JSON.stringify(marks.map(serializeMark))},"result":${row.result}}`,
+      );
+  });
+
+  app.post("/api/analyses/:id/marks", async (request, reply) => {
+    const id = idSchema.safeParse((request.params as { id: string }).id);
+    const analysis = id.success ? getRow(id.data) : undefined;
+    if (!analysis) return reply.status(404).send({ error: "not found" });
+    const parsed = markSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid body", details: parsed.error.flatten() });
+    }
+    const mark = parsed.data;
+    if (mark.endM > analysis.length_m) return reply.status(400).send({ error: "mark lies beyond the end of the route" });
+    const { lastInsertRowid } = app.db
+      .prepare("INSERT INTO marks (analysis_id, kind, start_m, end_m, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(analysis.id, mark.kind, mark.startM, mark.endM, mark.note || null, new Date().toISOString());
+    const row = app.db.prepare("SELECT * FROM marks WHERE id = ?").get(lastInsertRowid) as MarkRow;
+    return reply.status(201).send(serializeMark(row));
+  });
+
+  app.delete("/api/analyses/:id/marks/:markId", async (request, reply) => {
+    const params = request.params as { id: string; markId: string };
+    const id = idSchema.safeParse(params.id);
+    const markId = idSchema.safeParse(params.markId);
+    const deleted =
+      id.success && markId.success
+        ? app.db.prepare("DELETE FROM marks WHERE id = ? AND analysis_id = ?").run(markId.data, id.data).changes
+        : 0;
+    if (deleted === 0) return reply.status(404).send({ error: "not found" });
+    return reply.status(204).send();
   });
 
   app.patch("/api/analyses/:id", async (request, reply) => {
