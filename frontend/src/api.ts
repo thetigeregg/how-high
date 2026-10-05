@@ -3,6 +3,7 @@ import type {
   AnalysisSummary,
   Mark,
   MarkKind,
+  Proposal,
   Range,
   Rating,
   Settings,
@@ -88,4 +89,28 @@ export function saveSettings(settings: Settings): Promise<SettingsResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
+}
+
+const postJson = (url: string, body?: unknown): RequestInit & { url: string } => ({
+  url,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body ?? {}),
+});
+
+/** Settings that would fit your marks better, with their effect. Saves nothing. */
+export function suggestSettings(profile: "hike" | "road"): Promise<Proposal> {
+  const { url, ...init } = postJson("/api/settings/suggest", { profile });
+  return request(url, init);
+}
+
+/** Saves a confirmed suggestion; the settings it replaces are kept so it can be undone. */
+export function applySettings(settings: Settings): Promise<SettingsResponse> {
+  const { url, ...init } = postJson("/api/settings/apply", settings);
+  return request(url, init);
+}
+
+export function revertSettings(): Promise<SettingsResponse> {
+  const { url, ...init } = postJson("/api/settings/revert");
+  return request(url, init);
 }

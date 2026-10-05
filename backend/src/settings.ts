@@ -80,3 +80,17 @@ export function loadSettings(db: Database.Database): Settings {
 export function saveSettings(db: Database.Database, settings: Settings) {
   db.prepare("UPDATE settings SET data = ? WHERE id = 1").run(JSON.stringify(settings));
 }
+
+/** Saves settings while keeping the present ones to go back to; used when applying a suggestion. */
+export function replaceSettings(db: Database.Database, settings: Settings) {
+  db.prepare("UPDATE settings SET previous = data, data = ? WHERE id = 1").run(JSON.stringify(settings));
+}
+
+export function hasPreviousSettings(db: Database.Database): boolean {
+  return (db.prepare("SELECT previous FROM settings WHERE id = 1").get() as { previous: string | null }).previous !== null;
+}
+
+/** Puts back the settings from before the last applied suggestion. Returns false if there are none. */
+export function revertSettings(db: Database.Database): boolean {
+  return db.prepare("UPDATE settings SET data = previous, previous = NULL WHERE id = 1 AND previous IS NOT NULL").run().changes > 0;
+}

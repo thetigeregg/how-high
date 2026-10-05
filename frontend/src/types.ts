@@ -247,4 +247,26 @@ export interface SettingsResponse {
   defaults: Settings;
   /** How the current settings agree with the marks across all hikes. */
   fit: { marks: number; overFlagged: Disagreement[]; missed: Disagreement[] };
+  /** Whether an applied suggestion can still be undone. */
+  canRevert: boolean;
+}
+
+export interface EntryState {
+  level: Level;
+  maxScore: number;
+  /** Forecast tone, for entries still planned. */
+  forecast: Verdict["tone"] | null;
+}
+
+/** Settings that would fit your marks better, and what applying them would change. Nothing is saved until applied. */
+export interface Proposal {
+  profile: "hike" | "road";
+  /** 'none': no marks of this kind; 'fits': the present settings already agree; 'changes': see `changes`. */
+  outcome: "none" | "fits" | "changes";
+  marks: number;
+  changes: Array<{ key: string; current: number | [number, number]; proposed: number | [number, number] }>;
+  settings: Settings;
+  before: { overFlagged: Disagreement[]; missed: Disagreement[] };
+  after: { overFlagged: Disagreement[]; missed: Disagreement[] };
+  library: Array<{ id: number; name: string; kind: "hike" | "route"; before: EntryState; after: EntryState }>;
 }

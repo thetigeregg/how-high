@@ -108,6 +108,17 @@ To enable links, create a Google Cloud project with billing, enable the
 `GOOGLE_MAPS_API_KEY`. Without it the link field is hidden and everything
 else works. Each added route is one API request.
 
+### Fitting the settings to your marks
+
+Marks update forecasts and comparisons at once, but they do not move the
+scoring settings by themselves. **Settings → Suggest settings from my marks**
+works out changes under which marked stretches score as you marked them
+(fine below Exposed, bad and turned-back at Exposed or above), moving each
+setting as little as it can and never the level boundaries. It shows the
+proposed values, the effect on your marks and on every rating and forecast,
+and saves nothing until you apply. An applied suggestion can be reverted.
+With few marks, many settings fit equally well, and the dialog says so.
+
 ### What it cannot see
 
 Path width, railings, guardrails, chains and cables are not in any of the

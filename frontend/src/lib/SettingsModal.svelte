@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchSettings, saveSettings } from "../api.js";
-  import type { Disagreement, Settings, SettingsResponse } from "../types.js";
+  import { applySettings, fetchSettings, revertSettings, saveSettings, suggestSettings } from "../api.js";
+  import type { Disagreement, EntryState, Proposal, Settings, SettingsResponse, Verdict } from "../types.js";
   import { LEVEL_LABEL } from "./levels.js";
 
   let { onclose, onchange }: { onclose: () => void; onchange: () => void } = $props();
@@ -304,6 +304,57 @@
     saving = false;
   }
 
+  // A suggestion waiting for the user's decision; nothing is saved while it is shown.
+  let proposal = $state<Proposal | null>(null);
+  let working = $state<"suggest" | "apply" | "revert" | null>(null);
+  let confirmDialog = $state<HTMLDialogElement | null>(null);
+  const knobFor = (key: string) => sections.flatMap((s) => s.knobs).find((k) => k.key === key);
+  const FORECAST: Record<Verdict["tone"], string> = {
+    fine: "within what was fine",
+    unknown: "between fine and difficult",
+    difficult: "likely difficult",
+    beyond: "harder than anything marked",
+  };
+  const stateText = (s: EntryState) => `${LEVEL_LABEL[s.level]} (${Math.round(s.maxScore)})${s.forecast ? `, ${FORECAST[s.forecast]}` : ""}`;
+
+  /** Runs a settings action that replaces everything shown, and reports failures in the modal. */
+  async function act(kind: "suggest" | "apply" | "revert", action: () => Promise<void>) {
+    clearTimeout(timer);
+    working = kind;
+    try {
+      await action();
+      error = null;
+    } catch (err) {
+      error = (err as Error).message;
+    }
+    working = null;
+  }
+
+  function adopt(loaded: SettingsResponse) {
+    data = loaded;
+    draft = structuredClone(loaded.settings);
+    onchange();
+  }
+
+  const askForSuggestion = () =>
+    act("suggest", async () => {
+      // Edits not saved yet are saved first, so the suggestion starts from what is on screen.
+      if (draft && data && JSON.stringify($state.snapshot(draft)) !== JSON.stringify(data.settings)) {
+        data = await saveSettings($state.snapshot(draft));
+      }
+      proposal = await suggestSettings(scoreGroup === "score" ? "hike" : "road");
+      confirmDialog?.showModal();
+    });
+
+  const applyProposal = () =>
+    act("apply", async () => {
+      if (!proposal) return;
+      adopt(await applySettings(proposal.settings));
+      confirmDialog?.close();
+    });
+
+  const revert = () => act("revert", async () => adopt(await revertSettings()));
+
   function resetAll() {
     if (!data) return;
     draft = structuredClone($state.snapshot(data.defaults));
@@ -356,6 +407,16 @@
           </ul>
         {/if}
       {/if}
+      <div class="tuning">
+        <button type="button" disabled={working !== null} onclick={askForSuggestion}>
+          {working === "suggest" ? "Working it out…" : `Suggest settings from my marks (${scoreGroup === "score" ? "hikes" : "car, bus and train"})`}
+        </button>
+        {#if data.canRevert}
+          <button type="button" disabled={working !== null} onclick={revert}>
+            {working === "revert" ? "Reverting…" : "Revert to settings before the last suggestion"}
+          </button>
+        {/if}
+      </div>
     </section>
 
     {#snippet knobs(section: Section)}
@@ -450,6 +511,104 @@
     </footer>
   {:else if !error}
     <p class="intro">Loading…</p>
+  {/if}
+</dialog>
+
+<dialog class="confirm" bind:this={confirmDialog} onclose={() => (proposal = null)}>
+  {#if proposal}
+    {@const kind = proposal.profile === "hike" ? "hikes" : "car, bus and train"}
+    <h2>Suggested settings for {kind}</h2>
+    {#if proposal.outcome === "none"}
+      <p>There are no marked stretches on {proposal.profile === "hike" ? "hikes" : "routes"} to tune against. Mark how stretches felt first.</p>
+    {:else if proposal.outcome === "fits"}
+      <p>
+        No change suggested: the present settings already agree with your {proposal.marks} marked
+        {proposal.marks === 1 ? "stretch" : "stretches"}.
+      </p>
+    {:else}
+      <p class="basis">
+        Based on {proposal.marks} marked {proposal.marks === 1 ? "stretch" : "stretches"}.
+        {#if proposal.marks < 10}
+          That is few: several different settings would fit them equally well, so this may not hold as you mark more.
+        {/if}
+        Nothing is saved until you apply.
+      </p>
+
+      <h3>What would change</h3>
+      <table>
+        <thead>
+          <tr><th>Setting</th><th>Now</th><th>Suggested</th></tr>
+        </thead>
+        <tbody>
+          {#each proposal.changes as change}
+            {@const knob = knobFor(change.key)}
+            <tr>
+              <td>{knob?.label ?? change.key}</td>
+              <td>{format(change.current, knob?.unit)}</td>
+              <td><strong>{format(change.proposed, knob?.unit)}</strong></td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+
+      <h3>Agreement with your marks</h3>
+      <p>
+        Disagreements now: <strong>{proposal.before.overFlagged.length + proposal.before.missed.length}</strong>. With the
+        suggestion: <strong>{proposal.after.overFlagged.length + proposal.after.missed.length}</strong>.
+      </p>
+      {#if proposal.after.overFlagged.length + proposal.after.missed.length > 0}
+        <ul>
+          {#each [...proposal.after.overFlagged, ...proposal.after.missed] as d}
+            <li>Still off: {describe(d)}</li>
+          {/each}
+        </ul>
+      {/if}
+
+      <h3>Effect on your library</h3>
+      {#if proposal.library.length === 0}
+        <p>No rating or forecast would change.</p>
+      {:else}
+        <table>
+          <thead>
+            <tr><th>Entry</th><th>Now</th><th>With the suggestion</th></tr>
+          </thead>
+          <tbody>
+            {#each proposal.library as entry}
+              <tr>
+                <td>{entry.name || "Untitled"}</td>
+                <td>{stateText(entry.before)}</td>
+                <td><strong>{stateText(entry.after)}</strong></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+
+      <details>
+        <summary>All settings for {kind} as they would be saved</summary>
+        <table>
+          <tbody>
+            {#each sections.flatMap((s) => s.knobs).filter((k) => k.group === "score") as knob}
+              <tr>
+                <td>{knob.label}</td>
+                <td>{format((proposal.settings[proposal.profile === "hike" ? "score" : "road"] as unknown as Record<string, Value>)[knob.key], knob.unit)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </details>
+    {/if}
+
+    <footer class="choices">
+      {#if proposal.outcome === "changes"}
+        <button type="button" class="active" disabled={working !== null} onclick={applyProposal}>
+          {working === "apply" ? "Applying…" : "Apply these settings"}
+        </button>
+        <button type="button" onclick={() => confirmDialog?.close()}>Cancel</button>
+      {:else}
+        <button type="button" onclick={() => confirmDialog?.close()}>Close</button>
+      {/if}
+    </footer>
   {/if}
 </dialog>
 
@@ -611,6 +770,48 @@
   }
   footer {
     margin-top: 1.25rem;
+  }
+  .tuning,
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  button:disabled {
+    color: var(--text-muted);
+    cursor: progress;
+  }
+  dialog.confirm {
+    width: min(38rem, calc(100vw - 2rem));
+    padding: 1.25rem;
+  }
+  .confirm p,
+  .confirm li {
+    margin: 0.25rem 0 0.5rem;
+    font-size: 0.9rem;
+  }
+  .confirm .basis {
+    color: var(--text-muted);
+  }
+  .confirm table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .confirm th,
+  .confirm td {
+    padding: 0.35rem 0.5rem 0.35rem 0;
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .confirm th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.8rem;
+  }
+  .confirm details {
+    margin-top: 0.5rem;
   }
   .error {
     margin: 0.75rem 0 0;
