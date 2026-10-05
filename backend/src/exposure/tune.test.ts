@@ -32,7 +32,7 @@ describe("misfit", () => {
 
 describe("tune", () => {
   it("leaves settings alone when the marks already fit", () => {
-    const result = tune([{ kind: "bad", measurement: slope(45) }, { kind: "fine", measurement: slope(10) }], DEFAULT_PARAMS, peakOf);
+    const result = tune([{ kind: "bad", cause: null, measurement: slope(45) }, { kind: "fine", cause: null, measurement: slope(10) }], DEFAULT_PARAMS, peakOf);
     expect(result.params).toBe(DEFAULT_PARAMS);
     expect(result.misfitBefore).toBe(0);
   });
@@ -40,7 +40,7 @@ describe("tune", () => {
   it("loosens the settings when a stretch marked fine scores too high", () => {
     const stretch = slope(32);
     expect(peakOf(stretch, DEFAULT_PARAMS)).toBeGreaterThan(50);
-    const result = tune([{ kind: "fine", measurement: stretch }], DEFAULT_PARAMS, peakOf);
+    const result = tune([{ kind: "fine", cause: null, measurement: stretch }], DEFAULT_PARAMS, peakOf);
     expect(result.misfitAfter).toBeLessThan(result.misfitBefore);
     expect(peakOf(stretch, result.params)).toBeLessThan(peakOf(stretch, DEFAULT_PARAMS));
     // What it takes to count went up, and nothing moved by more than 40%.
@@ -52,16 +52,44 @@ describe("tune", () => {
   it("tightens the settings when a stretch marked bad scores too low", () => {
     const stretch = slope(27);
     expect(peakOf(stretch, DEFAULT_PARAMS)).toBeLessThan(50);
-    const result = tune([{ kind: "bad", measurement: stretch }], DEFAULT_PARAMS, peakOf);
+    const result = tune([{ kind: "bad", cause: null, measurement: stretch }], DEFAULT_PARAMS, peakOf);
     expect(peakOf(stretch, result.params)).toBeGreaterThan(peakOf(stretch, DEFAULT_PARAMS));
   });
 
   it("does not trade a mark that fits for one that does not", () => {
     // A steep stretch marked bad must stay flagged while a moderate one marked fine is brought down.
     const steep = slope(45);
-    const result = tune([{ kind: "fine", measurement: slope(32) }, { kind: "bad", measurement: steep }], DEFAULT_PARAMS, peakOf);
+    const result = tune([{ kind: "fine", cause: null, measurement: slope(32) }, { kind: "bad", cause: null, measurement: steep }], DEFAULT_PARAMS, peakOf);
     expect(peakOf(steep, result.params)).toBeGreaterThanOrEqual(55);
     expect(result.misfitAfter).toBeLessThan(result.misfitBefore);
+  });
+});
+
+describe("tune with a stated cause", () => {
+  // A flat path with a wide view 300 m down, which the default settings rate only mildly.
+  const viewpoint = (): Measurement => {
+    const flat = measure({ source: "synthetic", cellSize: 2, elevation: () => 1000 }, resample([[0, -200], [0, 200]], 5), identity);
+    flat.points[0].view = { depths: Array.from({ length: 36 }, () => [0, 300, 300]).flat(), wooded: false };
+    return flat;
+  };
+  const byCause = (m: Measurement, params: ScoreParams, cause: "drops" | "view" | null) => {
+    const points = score(m, params).points;
+    const pick = cause === "drops" ? "dropScore" : cause === "view" ? "viewScore" : "score";
+    return Math.max(0, ...points.map((p) => p[pick] ?? 0));
+  };
+
+  it("moves the view settings for a stretch put down to the view, and leaves the drop settings alone", () => {
+    const result = tune([{ kind: "bad", cause: "view", measurement: viewpoint() }], DEFAULT_PARAMS, byCause);
+    expect(result.params.viewDepthM[1]).toBeLessThan(DEFAULT_PARAMS.viewDepthM[1]);
+    expect(result.params.drop100M).toEqual(DEFAULT_PARAMS.drop100M);
+    expect(result.params.fallHeightM).toEqual(DEFAULT_PARAMS.fallHeightM);
+  });
+
+  it("does not credit the view for a stretch put down to the drop", () => {
+    // The view scores here, but the mark blames the drop, of which there is none: nothing can be fitted.
+    const result = tune([{ kind: "bad", cause: "drops", measurement: viewpoint() }], DEFAULT_PARAMS, byCause);
+    expect(result.params.viewDepthM).toEqual(DEFAULT_PARAMS.viewDepthM);
+    expect(result.misfitAfter).toBe(result.misfitBefore);
   });
 });
 

@@ -176,8 +176,13 @@ export interface Mark {
   startM: number;
   endM: number;
   note: string | null;
+  /** What it was about the stretch, if said; always null for 'fine'. */
+  cause: MarkCause | null;
   createdAt: string;
 }
+
+/** The drop beside the path, the view, both, or something the app does not measure. */
+export type MarkCause = "drops" | "view" | "both" | "other";
 
 /** A stretch of the route, in metres from the start. */
 export interface Range {

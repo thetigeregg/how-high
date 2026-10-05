@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { score, type Analysis, type Measurement, type Profile } from "./exposure/analyze.js";
 import { profileOf, verdictFor, type MarkKind, type Reference, type Verdict } from "./exposure/compare.js";
 import { LEVELS, type Level, type ScoreParams } from "./exposure/score.js";
-import { stretchOf, tune, TUNABLE_FACTORS, TUNABLE_RANGES } from "./exposure/tune.js";
+import { stretchOf, tune, TUNABLE_FACTORS, TUNABLE_RANGES, type Cause } from "./exposure/tune.js";
 import { scoreWith, type Disagreement } from "./hikes.js";
 import { loadSettings, type Settings } from "./settings.js";
 
@@ -22,6 +22,7 @@ interface Mark {
   kind: MarkKind;
   startM: number;
   endM: number;
+  cause: string | null;
 }
 
 interface EntryState {
@@ -98,7 +99,11 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
     // Entries stored in an older form have no measurements to re-score.
     .filter((entry) => entry.measurement.params !== undefined);
   const marks = db
-    .prepare("SELECT analysis_id AS analysisId, kind, start_m AS startM, end_m AS endM FROM marks ORDER BY analysis_id, start_m")
+    // Marks put down to something the app does not measure are left out throughout.
+    .prepare(
+      `SELECT analysis_id AS analysisId, kind, start_m AS startM, end_m AS endM, cause FROM marks
+       WHERE kind = 'fine' OR cause IS NULL OR cause != 'other' ORDER BY analysis_id, start_m`,
+    )
     .all() as Mark[];
 
   const byId = new Map(entries.map((e) => [e.id, e]));
@@ -107,16 +112,19 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
     if (!measurement || (measurement.profile ?? "hike") !== profile) return [];
     const endM = mark.kind === "turned_back" ? mark.startM + TURNED_BACK_LOOKAHEAD_M : mark.endM;
     const stretch = stretchOf(measurement, mark.startM, endM);
-    return stretch ? [{ kind: mark.kind, measurement: stretch }] : [];
+    // A fine stretch was fine on every count; a difficult one is held against what it was put down to.
+    const cause: Cause = mark.kind !== "fine" && (mark.cause === "drops" || mark.cause === "view") ? mark.cause : null;
+    return stretch ? [{ kind: mark.kind, cause, measurement: stretch }] : [];
   });
 
   const key = paramsKey(profile);
-  const peakOf = (measurement: Measurement, params: ScoreParams) => {
+  const peakOf = (measurement: Measurement, params: ScoreParams, cause: Cause) => {
     const scored =
       profile === "road"
         ? score(measurement, params, { walkParams: settings.score, noGo: settings.noGo })
         : score(measurement, params, { noGo: settings.noGo });
-    return Math.max(0, ...scored.points.map((p) => p.score ?? 0));
+    const pick = cause === "drops" ? "dropScore" : cause === "view" ? "viewScore" : "score";
+    return Math.max(0, ...scored.points.map((p) => p[pick] ?? 0));
   };
   const tuned = stretches.length > 0 ? tune(stretches, settings[key], peakOf).params : settings[key];
   const proposed: Settings = { ...settings, [key]: tuned };

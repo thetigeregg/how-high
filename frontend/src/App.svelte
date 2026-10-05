@@ -9,6 +9,7 @@
     fetchAnalysis,
     fetchMeta,
     reanalyse,
+    setMarkCause,
     updateAnalysis,
     uploadGpx,
   } from "./api.js";
@@ -25,6 +26,7 @@
     AnalysisSummary,
     Leg,
     Mark,
+    MarkCause,
     MarkKind,
     Range,
     Rating,
@@ -215,15 +217,46 @@
       ? `km ${(r.startM / 1000).toFixed(2)}–${(r.endM / 1000).toFixed(2)} (${Math.round(r.endM - r.startM)} m)`
       : `km ${(r.startM / 1000).toFixed(2)}`;
 
-  function addMark(kind: MarkKind) {
+  // A stretch that was not fine is asked one more thing before it is saved:
+  // what it was. This holds the answer to the first question meanwhile.
+  let pendingKind = $state<MarkKind | null>(null);
+  const causes: Array<{ value: MarkCause; label: string }> = [
+    { value: "drops", label: "The drop beside me" },
+    { value: "view", label: "The view" },
+    { value: "both", label: "Both" },
+    { value: "other", label: "Something else" },
+  ];
+  const causeLabel: Record<MarkCause, string> = {
+    drops: "the drop beside me",
+    view: "the view",
+    both: "the drop and the view",
+    other: "something else",
+  };
+
+  $effect(() => {
+    // A new selection starts the question over.
+    void selection;
+    pendingKind = null;
+  });
+
+  function addMark(kind: MarkKind, cause: MarkCause | null = null) {
     if (!detail || !selection) return;
     const id = detail.summary.id;
     // Turning back happens at one place: the start of whatever is selected.
     const range = kind === "turned_back" ? { startM: selection.startM, endM: selection.startM } : selection;
     void run(async () => {
-      await createMark(id, kind, range);
+      await createMark(id, kind, range, cause);
       await refresh(id);
       selection = null;
+    });
+  }
+
+  function changeCause(mark: Mark, cause: MarkCause | null) {
+    if (!detail) return;
+    const id = detail.summary.id;
+    void run(async () => {
+      await setMarkCause(id, mark.id, cause);
+      await refresh(id);
     });
   }
 
@@ -516,10 +549,22 @@
           onselect={(range) => (selection = range)}
         />
         <div class="marking">
-          {#if selection}
+          {#if selection && pendingKind}
+            {@const kind = pendingKind}
+            <span>
+              <strong>{markLabel[kind]}</strong> at {kmRange(selection)}. What was it?
+            </span>
+            {#each causes as cause}
+              <button type="button" onclick={() => addMark(kind, cause.value)}>{cause.label}</button>
+            {/each}
+            <button type="button" class="quiet" onclick={() => addMark(kind)}>Not sure</button>
+            <button type="button" class="quiet" onclick={() => (pendingKind = null)}>Back</button>
+          {:else if selection}
             <span>How was <strong>{kmRange(selection)}</strong>?</span>
             {#each markKinds as kind}
-              <button type="button" onclick={() => addMark(kind.value)}>{kind.label}</button>
+              <button type="button" onclick={() => (kind.value === "fine" ? addMark("fine") : (pendingKind = kind.value))}>
+                {kind.label}
+              </button>
             {/each}
             <button type="button" class="quiet" onclick={() => (selection = null)}>Cancel</button>
           {:else}
@@ -540,6 +585,20 @@
                   <strong>{markLabel[mark.kind]}</strong>
                   {kmRange(mark)}
                 </button>
+                {#if mark.kind !== "fine"}
+                  <label class="cause">
+                    because of
+                    <select
+                      value={mark.cause ?? ""}
+                      onchange={(e) => changeCause(mark, (e.currentTarget.value || null) as MarkCause | null)}
+                    >
+                      <option value="">not said</option>
+                      {#each causes as cause}
+                        <option value={cause.value}>{causeLabel[cause.value]}</option>
+                      {/each}
+                    </select>
+                  </label>
+                {/if}
                 <button type="button" class="quiet" aria-label="Remove mark" onclick={() => removeMark(mark)}>Remove</button>
               </li>
             {/each}
@@ -865,6 +924,22 @@
     justify-content: space-between;
     gap: 0.5rem;
     border-bottom: 1px solid var(--border-subtle);
+  }
+  .cause {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-right: auto;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  .cause select {
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    background: var(--bg-elevated);
+    color: var(--text);
+    font: inherit;
   }
   .marks strong {
     color: var(--text);

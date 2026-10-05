@@ -159,7 +159,7 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
     .prepare(
       `SELECT m.analysis_id AS analysisId, a.name, m.kind, m.start_m AS startM, m.end_m AS endM
        FROM marks m JOIN analyses a ON a.id = m.analysis_id
-       WHERE m.kind != 'turned_back' ORDER BY m.analysis_id, m.start_m`,
+       WHERE m.kind != 'turned_back' AND (m.kind = 'fine' OR m.cause IS NULL OR m.cause != 'other') ORDER BY m.analysis_id, m.start_m`,
     )
     .all() as Array<Omit<Disagreement, "level">>;
 
@@ -179,6 +179,10 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
   return { marks: marks.length, overFlagged, missed };
 }
 
+// Marks put down to something the app does not measure (a narrow path, say)
+// are kept on record but say nothing about its scores, so they are left out
+// of comparisons, forecasts and the agreement count.
+//
 // Every marked stretch with what the model measures there under the current
 // settings. Rebuilt lazily after anything that could change it.
 let references: Reference[] | null = null;
@@ -203,7 +207,8 @@ async function loadReferences(db: Database.Database, settings: Settings): Promis
   const marks = db
     .prepare(
       `SELECT m.analysis_id AS analysisId, a.name, m.kind, m.start_m AS startM, m.end_m AS endM
-       FROM marks m JOIN analyses a ON a.id = m.analysis_id ORDER BY m.analysis_id, m.start_m`,
+       FROM marks m JOIN analyses a ON a.id = m.analysis_id
+       WHERE (m.kind = 'fine' OR m.cause IS NULL OR m.cause != 'other') ORDER BY m.analysis_id, m.start_m`,
     )
     .all() as MarkRow[];
   const analyses = new Map<number, Analysis | null>();

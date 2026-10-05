@@ -9,8 +9,13 @@ import type { ScoreParams } from "./score.js";
 /** A stretch the user has judged, cut out of its route's measurements. */
 export interface MarkedStretch {
   kind: MarkKind;
+  /** What the user put it down to, if they said: decides which score the mark is held against. */
+  cause: Cause;
   measurement: Measurement;
 }
+
+/** 'drops' or 'view' when the user named one; null when they named both or did not say. */
+export type Cause = "drops" | "view" | null;
 
 type RangeKey = "fallHeightM" | "drop10M" | "drop30M" | "drop100M" | "crossSlopeDeg" | "viewDepthM";
 type FactorKey = "forestFactor" | "viewForestFactor";
@@ -56,16 +61,18 @@ function scaled(base: ScoreParams, multipliers: Record<string, number>): ScorePa
 /**
  * Finds settings under which the marked stretches score as marked, moving
  * one setting at a time to whichever of a few steps fits best and repeating
- * until nothing improves. `peakOf` scores a stretch under given settings.
+ * until nothing improves. `peakOf` scores a stretch under given settings:
+ * the drop score or the view score alone where the mark names that as the
+ * cause, else the overall score.
  * Returns the present settings unchanged when nothing fits better.
  */
 export function tune(
   stretches: MarkedStretch[],
   current: ScoreParams,
-  peakOf: (measurement: Measurement, params: ScoreParams) => number,
+  peakOf: (measurement: Measurement, params: ScoreParams, cause: Cause) => number,
 ): { params: ScoreParams; misfitBefore: number; misfitAfter: number } {
   const total = (params: ScoreParams) =>
-    stretches.reduce((sum, s) => sum + misfit(s.kind, peakOf(s.measurement, params), params.thresholds), 0);
+    stretches.reduce((sum, s) => sum + misfit(s.kind, peakOf(s.measurement, params, s.cause), params.thresholds), 0);
   const cost = (multipliers: Record<string, number>) =>
     CHANGE_COST * Object.values(multipliers).reduce((sum, m) => sum + Math.log(m) ** 2, 0);
 

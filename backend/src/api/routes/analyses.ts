@@ -27,12 +27,15 @@ const patchSchema = z.object({
   status: z.enum(["planned", "done"]).optional(),
 });
 
+const causeSchema = z.enum(["drops", "view", "both", "other"]).nullable();
+
 const markSchema = z
   .object({
     kind: z.enum(["fine", "uneasy", "bad", "turned_back"]),
     startM: z.number().nonnegative(),
     endM: z.number().nonnegative(),
     note: z.string().trim().max(500).optional(),
+    cause: causeSchema.optional(),
   })
   .refine((mark) => mark.endM >= mark.startM, { message: "endM must not be before startM" });
 
@@ -59,6 +62,7 @@ interface MarkRow {
   start_m: number;
   end_m: number;
   note: string | null;
+  cause: string | null;
   created_at: string;
 }
 
@@ -69,6 +73,7 @@ function serializeMark(row: MarkRow) {
     startM: row.start_m,
     endM: row.end_m,
     note: row.note,
+    cause: row.cause,
     createdAt: row.created_at,
   };
 }
@@ -196,13 +201,32 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const mark = parsed.data;
     if (mark.endM > analysis.length_m) return reply.status(400).send({ error: "mark lies beyond the end of the route" });
     const { lastInsertRowid } = app.db
-      .prepare("INSERT INTO marks (analysis_id, kind, start_m, end_m, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(analysis.id, mark.kind, mark.startM, mark.endM, mark.note || null, new Date().toISOString());
+      .prepare("INSERT INTO marks (analysis_id, kind, start_m, end_m, note, cause, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      // A stretch that was fine has no cause to give.
+      .run(analysis.id, mark.kind, mark.startM, mark.endM, mark.note || null, mark.kind === "fine" ? null : (mark.cause ?? null), new Date().toISOString());
     // Saying how a stretch felt means having been there.
     app.db.prepare("UPDATE analyses SET status = 'done' WHERE id = ?").run(analysis.id);
     invalidateReferences();
     const row = app.db.prepare("SELECT * FROM marks WHERE id = ?").get(lastInsertRowid) as MarkRow;
     return reply.status(201).send(serializeMark(row));
+  });
+
+  // Says, or changes, what it was about a marked stretch.
+  app.patch("/api/analyses/:id/marks/:markId", async (request, reply) => {
+    const params = request.params as { id: string; markId: string };
+    const id = idSchema.safeParse(params.id);
+    const markId = idSchema.safeParse(params.markId);
+    const parsed = z.object({ cause: causeSchema }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: "invalid body" });
+    const changed =
+      id.success && markId.success
+        ? app.db
+            .prepare("UPDATE marks SET cause = ? WHERE id = ? AND analysis_id = ? AND kind != 'fine'")
+            .run(parsed.data.cause, markId.data, id.data).changes
+        : 0;
+    if (changed === 0) return reply.status(404).send({ error: "not found" });
+    invalidateReferences();
+    return serializeMark(app.db.prepare("SELECT * FROM marks WHERE id = ?").get(markId.data) as MarkRow);
   });
 
   app.delete("/api/analyses/:id/marks/:markId", async (request, reply) => {

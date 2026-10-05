@@ -2,6 +2,7 @@ import type {
   AnalysisDetail,
   AnalysisSummary,
   Mark,
+  MarkCause,
   MarkKind,
   Proposal,
   Range,
@@ -53,11 +54,20 @@ export function deleteAnalysis(id: number): Promise<void> {
   return request(`/api/analyses/${id}`, { method: "DELETE" });
 }
 
-export function createMark(analysisId: number, kind: MarkKind, range: Range): Promise<Mark> {
+export function createMark(analysisId: number, kind: MarkKind, range: Range, cause: MarkCause | null = null): Promise<Mark> {
   return request(`/api/analyses/${analysisId}/marks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, ...range }),
+    body: JSON.stringify({ kind, cause, ...range }),
+  });
+}
+
+/** Says, or changes, what it was about a marked stretch. */
+export function setMarkCause(analysisId: number, markId: number, cause: MarkCause | null): Promise<Mark> {
+  return request(`/api/analyses/${analysisId}/marks/${markId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cause }),
   });
 }
 
