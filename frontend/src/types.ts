@@ -255,7 +255,8 @@ export interface SettingsResponse {
   settings: Settings;
   defaults: Settings;
   /** How the current settings agree with the marks across all hikes. */
-  fit: { marks: number; overFlagged: Disagreement[]; missed: Disagreement[] };
+  /** Agreement with marks, separately for hikes and for rides. */
+  fit: Record<"hike" | "road", { marks: number; overFlagged: Disagreement[]; missed: Disagreement[] }>;
   /** Whether an applied suggestion can still be undone. */
   canRevert: boolean;
 }

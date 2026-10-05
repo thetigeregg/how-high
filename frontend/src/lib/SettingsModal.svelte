@@ -277,6 +277,9 @@
   const groupOf = (knob: Knob) => (knob.group === "score" ? scoreGroup : knob.group);
 
   let data = $state<SettingsResponse | null>(null);
+  // Agreement with marks is shown for the kind of travel whose knobs are showing, never both mixed.
+  const fit = $derived(data ? data.fit[scoreGroup === "score" ? "hike" : "road"] : null);
+  const what = $derived(scoreGroup === "score" ? "hikes" : "routes");
   let draft = $state<Settings | null>(null);
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -408,17 +411,22 @@
   {#if data && draft}
     <section class="fit">
       <h3>Agreement with your marks</h3>
-      {#if data.fit.marks === 0}
-        <p>You have not marked any stretches yet. Mark how stretches felt and this shows whether the settings agree.</p>
+      {#if !fit}
+        <!-- settings still loading -->
+      {:else if fit.marks === 0}
+        <p>
+          You have not marked any stretches on {what} yet. Mark how stretches felt and this shows whether the settings
+          agree.
+        </p>
       {:else}
         <p>
-          Across {data.fit.marks} marked {data.fit.marks === 1 ? "stretch" : "stretches"}:
-          <strong>{data.fit.overFlagged.length}</strong> marked fine but shown Exposed or Severe,
-          <strong>{data.fit.missed.length}</strong> marked uneasy or bad but shown Easy, or mostly Easy.
+          Across {fit.marks} marked {fit.marks === 1 ? "stretch" : "stretches"} on {what}:
+          <strong>{fit.overFlagged.length}</strong> marked fine but shown Exposed or Severe,
+          <strong>{fit.missed.length}</strong> marked uneasy or bad but shown Easy, or mostly Easy.
         </p>
-        {#if data.fit.overFlagged.length + data.fit.missed.length > 0}
+        {#if fit.overFlagged.length + fit.missed.length > 0}
           <ul>
-            {#each [...data.fit.overFlagged, ...data.fit.missed] as d}
+            {#each [...fit.overFlagged, ...fit.missed] as d}
               <li>{describe(d)}</li>
             {/each}
           </ul>

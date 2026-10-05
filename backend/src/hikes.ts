@@ -167,18 +167,22 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
     )
     .all() as Array<Omit<Disagreement, "level" | "flaggedShare">>;
 
+  // Kept apart by kind of travel: hikes and rides are scored with separate
+  // settings, so a disagreement on one says nothing about the other's.
+  const empty = () => ({ marks: 0, overFlagged: [] as Disagreement[], missed: [] as Disagreement[] });
+  const fit = { hike: empty(), road: empty() };
   const analyses = new Map<number, Analysis | null>();
-  const overFlagged: Disagreement[] = [];
-  const missed: Disagreement[] = [];
   for (const mark of marks) {
     if (!analyses.has(mark.analysisId)) analyses.set(mark.analysisId, await loadAnalysis(db, mark.analysisId, settings));
     const analysis = analyses.get(mark.analysisId);
     if (!analysis) continue;
+    const of = fit[analysis.profile];
+    of.marks++;
     const { level, flaggedShare, disagreement } = judgeMark(analysis, mark.kind as MarkKind, mark.startM, mark.endM);
-    if (disagreement === "overFlagged") overFlagged.push({ ...mark, level, flaggedShare });
-    if (disagreement === "missed") missed.push({ ...mark, level, flaggedShare });
+    if (disagreement === "overFlagged") of.overFlagged.push({ ...mark, level, flaggedShare });
+    if (disagreement === "missed") of.missed.push({ ...mark, level, flaggedShare });
   }
-  return { marks: marks.length, overFlagged, missed };
+  return fit;
 }
 
 // Marks put down to something the app does not measure (a narrow path, say)
@@ -259,7 +263,9 @@ export async function annotateSections(
   analysis: Analysis,
   settings: Settings,
 ): Promise<AnnotatedSection[]> {
-  const all = await loadReferences(db, settings);
+  // Only marks on the same kind of travel are comparable: a train ride is
+  // scored on a different scale from a hike, and feels different too.
+  const all = (await loadReferences(db, settings)).filter((r) => r.routeProfile === analysis.profile);
   return analysis.sections.map((section) => {
     const overlaps = (r: Reference) => r.analysisId === id && r.startM <= section.endM && r.endM >= section.startM;
     const own = all.filter(overlaps);
