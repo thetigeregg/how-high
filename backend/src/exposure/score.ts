@@ -134,6 +134,20 @@ export function adjustScore(raw: number, context: PointContext | null, params: S
   return score;
 }
 
+/**
+ * How steeply the ground falls away beside the path, degrees: the measured
+ * side slope, but no more than the drop within 10 m bears out. The side slope
+ * alone cannot tell a hillside falling away below from a wall rising above
+ * with only a short bank under the path; at the foot of a cliff it is the
+ * wall that is steep, and that is not exposure.
+ */
+export function fallAwayDeg(m: PointMetrics, side?: "left" | "right"): number {
+  const drop = side === "left" ? m.dropLeft10 : side === "right" ? m.dropRight10 : m.drop10;
+  // Measurements from before drops were kept per side fall back to the side slope as it was.
+  if (drop === undefined) return m.crossSlopeDeg;
+  return Math.min(m.crossSlopeDeg, (Math.atan(Math.max(0, drop) / 10) * 180) / Math.PI);
+}
+
 /** Exposure of a single point from terrain alone, 0 (none) to 100. */
 export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS): number {
   const fall = ramp(Math.max(m.fallLeft, m.fallRight), params.fallHeightM);
@@ -143,7 +157,7 @@ export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS
     ramp(m.drop100, params.drop100M),
   );
   let score =
-    100 * (params.dropWeight * Math.max(fall, drop) + (1 - params.dropWeight) * ramp(m.crossSlopeDeg, params.crossSlopeDeg));
+    100 * (params.dropWeight * Math.max(fall, drop) + (1 - params.dropWeight) * ramp(fallAwayDeg(m), params.crossSlopeDeg));
   if (Math.min(m.dropLeft30, m.dropRight30) >= params.ridgeDropM) score *= params.ridgeFactor;
   score += 10 * ramp(Math.abs(m.trackGradeDeg), params.trackGradeDeg);
   score = Math.max(score, 100 * ramp(m.bridgeGap, params.bridgeGapM));
@@ -199,7 +213,7 @@ export function scoreSide(m: PointMetrics, side: "left" | "right", params: Score
     ramp(left ? m.dropLeft100 : m.dropRight100, params.drop100M),
   );
   const fallsThisWay = left ? m.dropLeft30 >= m.dropRight30 : m.dropRight30 >= m.dropLeft30;
-  const slope = fallsThisWay ? ramp(m.crossSlopeDeg, params.crossSlopeDeg) : 0;
+  const slope = fallsThisWay ? ramp(fallAwayDeg(m, side), params.crossSlopeDeg) : 0;
   return 100 * (params.dropWeight * worst + (1 - params.dropWeight) * slope);
 }
 

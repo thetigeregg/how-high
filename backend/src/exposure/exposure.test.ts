@@ -6,7 +6,7 @@ import type { Terrain } from "../terrain/grid.js";
 import { DEFAULT_SETTINGS, settingsSchema } from "../settings.js";
 import { analyseTrack, measure, score } from "./analyze.js";
 import { DEFAULT_MEASURE, measureTrack } from "./metrics.js";
-import { DEFAULT_PARAMS, findRuns } from "./score.js";
+import { DEFAULT_PARAMS, fallAwayDeg, findRuns, scorePoint } from "./score.js";
 
 const identity: Projection = { name: "test", forward: (x, y) => [x, y], inverse: (x, y) => [x, y] };
 
@@ -374,5 +374,71 @@ describe("Street View link", () => {
 
   it("faces the way of travel where the drop is on both sides", () => {
     expect(link(ground((x) => 1000 - Math.abs(x))).searchParams.get("heading")).toBe("0");
+  });
+});
+
+describe("at the foot of a cliff", () => {
+  // A path at 1000 m: on the left a wall rising at 75°, on the right a 7 m bank down to a lake.
+  const lakeside = ground((x) => (x < -1 ? 1000 + (-x - 1) * tan(75) : Math.max(993, 1000 - Math.max(0, x - 1) * 2)));
+  // The same 75° ground, but falling away below the path instead of rising above it.
+  const cliffTop = ground((x) => 1000 - Math.max(0, x - 1) * tan(75));
+
+  it("measures the wall as a steep side slope either way", () => {
+    expect(middle(measureTrack(lakeside, northbound(0)))!.crossSlopeDeg).toBeGreaterThan(50);
+    expect(middle(measureTrack(cliffTop, northbound(0)))!.crossSlopeDeg).toBeGreaterThan(50);
+  });
+
+  it("does not count a wall rising above the path as ground falling away", () => {
+    const m = middle(measureTrack(lakeside, northbound(0)))!;
+    // 7 m down within 10 m is a 35° bank, whatever the wall above does.
+    expect(fallAwayDeg(m)).toBeCloseTo(35, 0);
+    expect(fallAwayDeg(middle(measureTrack(cliffTop, northbound(0)))!)).toBeGreaterThan(50);
+  });
+
+  it("rates the foot of the cliff far below its top", () => {
+    const foot = analyseTrack(lakeside, northbound(0), identity);
+    const top = analyseTrack(cliffTop, northbound(0), identity);
+    expect(top.summary.level).toBe("red");
+    expect(foot.summary.maxScore).toBeLessThan(50);
+    expect(foot.summary.maxScore).toBeLessThan(top.summary.maxScore - 40);
+  });
+
+  it("leaves an even hillside as it was: the drop bears out the side slope", () => {
+    const m = middle(measureTrack(ground((x) => 1000 - x * tan(30)), northbound(0)))!;
+    expect(fallAwayDeg(m)).toBeCloseTo(m.crossSlopeDeg, 0);
+  });
+});
+
+describe("a line drawn off the path", () => {
+  // A road bench 6 m wide at 1000 m: a 75° wall rising on the left of it, a lake 7 m below on the right.
+  const bench = ground((x) => (x < -3 ? 1000 + (-x - 3) * tan(75) : x <= 3 ? 1000 : Math.max(993, 1000 - (x - 3) * 2)));
+
+  it("scores a line drawn a few metres into the wall as if it were on the road beside it", () => {
+    // 5 m to the left the line is on the wall, some 7 m above the road; the road is the gentler ground beside it.
+    const asDrawn = middle(measureTrack(bench, northbound(-5)))!;
+    expect(asDrawn.slopeDeg).toBeGreaterThan(45);
+    // Taken at face value, a spot on the wall with the lake below it rates as exposed or worse.
+    expect(scorePoint(asDrawn)).toBeGreaterThan(50);
+    // The map says this is a wide track, so it cannot be on the wall itself.
+    const wideTrack = { tunnel: false, bridge: false, wide: true, sacGrade: null, aided: false, rack: false, funicular: false };
+    const context = { inForest: () => false, cliffNear: () => false, pathAt: () => wideTrack };
+    const intoWall = middle(analyseTrack(bench, northbound(-5), identity, { context }).points);
+    expect(intoWall.metrics!.elevation).toBeCloseTo(1000, 0);
+    expect(intoWall.score).toBeLessThan(40);
+    // A footpath drawn in the same place is taken at its word: it may really be up there on a ledge.
+    expect(middle(analyseTrack(bench, northbound(-5), identity).points).score).toBeGreaterThan(50);
+  });
+
+  it("leaves a path across an even steep slope where it is", () => {
+    const slope = ground((x) => 1000 - x * tan(50));
+    const analysis = analyseTrack(slope, northbound(0), identity);
+    expect(middle(analysis.points).metrics!.elevation).toBeCloseTo(1000, 0);
+    expect(analysis.summary.level).toBe("red");
+  });
+
+  it("does not pull a path on a cliff top back from the edge", () => {
+    // Flat ground under the line, so it is where a path could be; the edge 5 m away still counts.
+    const top = ground((x) => (x < 0 ? 1000 : Math.max(950, 1000 - x * 5)));
+    expect(analyseTrack(top, northbound(-5), identity).summary.level).toBe("red");
   });
 });

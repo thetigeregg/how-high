@@ -462,6 +462,28 @@ function summariseSides(measurement: Measurement, scored: AnalysedPoint[], leg: 
   return summaries;
 }
 
+/** Ground steeper than this is not somewhere a road or track lies; a line drawn on it is a few metres off. */
+const MAX_PATH_SLOPE_DEG = 45;
+/** ...and is only moved if one of the positions beside it is at least this much gentler. */
+const MIN_GENTLER_DEG = 10;
+
+/**
+ * The measurements to score a point by. Where a road, railway or wide track
+ * is drawn on ground too steep to carry one, e.g. a few metres into the
+ * cliff it runs along the foot of, it is taken to be at whichever position a
+ * GPS error to either side has it on the gentlest ground: that is where its
+ * bed will be. Footpaths are left alone: a narrow path can cross ground this
+ * steep on a ledge too small for the terrain data to show, and moving it
+ * would hide real exposure. So are mapped bridges and tunnels, where the
+ * ground under the line is not what carries it.
+ */
+function placed(p: MeasuredPoint, vehicleWidth: boolean): PointMetrics {
+  const centre = p.metrics!;
+  if (!vehicleWidth || centre.slopeDeg <= MAX_PATH_SLOPE_DEG || p.context?.bridge || p.context?.tunnel) return centre;
+  const gentlest = p.shifted.reduce<PointMetrics>((best, m) => (m && m.slopeDeg < best.slopeDeg ? m : best), centre);
+  return gentlest.slopeDeg <= centre.slopeDeg - MIN_GENTLER_DEG ? gentlest : centre;
+}
+
 const UNSCORED = {
   score: null, rawScore: null, dropScore: null, viewScore: null, viewDepthM: null, context: null,
   scoreLow: null, scoreHigh: null, level: null, metrics: null,
@@ -516,7 +538,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     // The terrain-only bridge guess is dropped where the map shows a path that is not a bridge.
     const disproved = context !== null && context.matched && !context.bridge;
     const settle = (m: PointMetrics) => (disproved ? { ...m, bridgeGap: 0 } : m);
-    const metrics = settle(p.metrics);
+    const metrics = settle(placed(p, kind === "road" || kind === "rail" || context?.wide === true));
     const rawScore = scorePoint(metrics, params);
     const dropScore = adjustScore(rawScore, context, params);
     // Whichever is worse decides: a wide view over a valley bothers on a safe path, and so does a drop in a forest.
