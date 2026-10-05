@@ -647,7 +647,11 @@
 </div>
 
 {#if settingsOpen}
-  <SettingsModal onclose={() => (settingsOpen = false)} onchange={settingsChanged} />
+  <SettingsModal
+    initial={(detail?.summary.kind ?? tab) === "route" ? "road" : "score"}
+    onclose={() => (settingsOpen = false)}
+    onchange={settingsChanged}
+  />
 {/if}
 
 <style>

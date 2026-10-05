@@ -4,7 +4,16 @@
   import type { Disagreement, EntryState, Proposal, Settings, SettingsResponse, Verdict } from "../types.js";
   import { LEVEL_LABEL } from "./levels.js";
 
-  let { onclose, onchange }: { onclose: () => void; onchange: () => void } = $props();
+  let {
+    initial,
+    onclose,
+    onchange,
+  }: {
+    /** Which set of scoring knobs to open on: the one for what is showing behind the modal. */
+    initial: "score" | "road";
+    onclose: () => void;
+    onchange: () => void;
+  } = $props();
 
   type Group = "score" | "measure" | "noGo";
   interface Knob {
@@ -262,7 +271,8 @@
 
   // The Levels, Drops, Modifiers and Sections knobs exist twice: once for
   // hikes and walking, once for car, bus and train. This picks which is shown.
-  let scoreGroup = $state<"score" | "road">("score");
+  // svelte-ignore state_referenced_locally (only the starting value is wanted)
+  let scoreGroup = $state<"score" | "road">(initial);
   const groupOf = (knob: Knob) => (knob.group === "score" ? scoreGroup : knob.group);
 
   let data = $state<SettingsResponse | null>(null);
