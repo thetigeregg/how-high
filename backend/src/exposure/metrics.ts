@@ -23,14 +23,29 @@ export interface PointMetrics {
   bridgeGap: number;
 }
 
+/** Knobs that change what is measured; altering them means measuring again. */
+export interface MeasureParams {
+  /** Ground steeper than this counts as "would keep falling", degrees. */
+  fallSlopeDeg: number;
+  /** A fall ends once this much gentler ground has been crossed, metres. */
+  fallRunoutM: number;
+  /** Assumed sideways GPS error the score is re-tested against, metres. */
+  gpsErrorM: number;
+  /** How far to the exposed side the ground must still be wooded to count as forest, metres. */
+  forestCheckM: number;
+}
+
+export const DEFAULT_MEASURE: MeasureParams = {
+  fallSlopeDeg: 35,
+  fallRunoutM: 8,
+  gpsErrorM: 5,
+  forestCheckM: 20,
+};
+
 const DEG = Math.PI / 180;
 
 /** Where the fall line starts, sideways from the track centre. */
 const FALL_START_OFFSET_M = 3;
-/** Ground steeper than this counts as "would keep falling". */
-const FALL_SLOPE = Math.tan(35 * DEG);
-/** A fall ends once this much gentler ground has been crossed. */
-const FALL_RUNOUT_M = 8;
 const FALL_MAX_PATH_M = 400;
 
 const RAY_COUNT = 16;
@@ -54,7 +69,8 @@ function gradient(terrain: Terrain, x: number, y: number, h: number): [number, n
  * Follows the line of steepest descent starting just off one side of the
  * track and returns the height lost before the ground eases off.
  */
-function fallHeight(terrain: Terrain, x: number, y: number, z0: number, nx: number, ny: number): number {
+function fallHeight(terrain: Terrain, x: number, y: number, z0: number, nx: number, ny: number, params: MeasureParams): number {
+  const fallSlope = Math.tan(params.fallSlopeDeg * DEG);
   const step = terrain.cellSize;
   let px = x + nx * FALL_START_OFFSET_M;
   let py = y + ny * FALL_START_OFFSET_M;
@@ -74,12 +90,12 @@ function fallHeight(terrain: Terrain, x: number, y: number, z0: number, nx: numb
     const next = terrain.elevation(px, py);
     if (Number.isNaN(next) || next >= z) break;
     z = next;
-    if (slope >= FALL_SLOPE) {
+    if (slope >= fallSlope) {
       gentleRun = 0;
       lowestSteep = z;
     } else {
       gentleRun += step;
-      if (gentleRun >= FALL_RUNOUT_M) break;
+      if (gentleRun >= params.fallRunoutM) break;
     }
   }
   return Math.max(0, z0 - lowestSteep);
@@ -88,7 +104,14 @@ function fallHeight(terrain: Terrain, x: number, y: number, z0: number, nx: numb
 type LocalMetrics = Omit<PointMetrics, "trackGradeDeg" | "bridgeGap">;
 
 /** Everything that depends only on the terrain around one position and heading. */
-export function measurePoint(terrain: Terrain, x: number, y: number, tx: number, ty: number): LocalMetrics | null {
+export function measurePoint(
+  terrain: Terrain,
+  x: number,
+  y: number,
+  tx: number,
+  ty: number,
+  params: MeasureParams = DEFAULT_MEASURE,
+): LocalMetrics | null {
   const z0 = terrain.elevation(x, y);
   const g = gradient(terrain, x, y, Math.max(5, terrain.cellSize));
   if (Number.isNaN(z0) || !g) return null;
@@ -128,8 +151,8 @@ export function measurePoint(terrain: Terrain, x: number, y: number, tx: number,
     elevation: z0,
     slopeDeg: Math.atan(Math.hypot(g[0], g[1])) / DEG,
     crossSlopeDeg: Math.atan(Math.abs(g[0] * nx + g[1] * ny)) / DEG,
-    fallLeft: fallHeight(terrain, x, y, z0, nx, ny),
-    fallRight: fallHeight(terrain, x, y, z0, -nx, -ny),
+    fallLeft: fallHeight(terrain, x, y, z0, nx, ny, params),
+    fallRight: fallHeight(terrain, x, y, z0, -nx, -ny, params),
     drop10,
     drop30,
     drop100,
@@ -143,11 +166,16 @@ export function measurePoint(terrain: Terrain, x: number, y: number, tx: number,
  * track sideways (positive = left), used to test sensitivity to GPS error.
  * Points without terrain data come back as null.
  */
-export function measureTrack(terrain: Terrain, track: TrackPoint[], lateralOffset = 0): Array<PointMetrics | null> {
+export function measureTrack(
+  terrain: Terrain,
+  track: TrackPoint[],
+  lateralOffset = 0,
+  params: MeasureParams = DEFAULT_MEASURE,
+): Array<PointMetrics | null> {
   const spacing = track.length > 1 ? track[1].dist - track[0].dist : 1;
   const xs = track.map((p) => p.x - p.ty * lateralOffset);
   const ys = track.map((p) => p.y + p.tx * lateralOffset);
-  const local = track.map((p, i) => measurePoint(terrain, xs[i], ys[i], p.tx, p.ty));
+  const local = track.map((p, i) => measurePoint(terrain, xs[i], ys[i], p.tx, p.ty, params));
   const z = (i: number) => local[i]?.elevation ?? Number.NaN;
 
   const gradeSpan = Math.max(1, Math.round(GRADE_WINDOW_M / spacing));

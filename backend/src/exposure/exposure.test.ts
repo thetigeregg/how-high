@@ -3,9 +3,10 @@ import { buildContext, type TerrainContext } from "../context/context.js";
 import { lv95, type Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
-import { analyseTrack } from "./analyze.js";
-import { measureTrack } from "./metrics.js";
-import { findRuns } from "./score.js";
+import { DEFAULT_SETTINGS, settingsSchema } from "../settings.js";
+import { analyseTrack, measure, score } from "./analyze.js";
+import { DEFAULT_MEASURE, measureTrack } from "./metrics.js";
+import { DEFAULT_PARAMS, findRuns } from "./score.js";
 
 const identity: Projection = { name: "test", forward: (x, y) => [x, y], inverse: (x, y) => [x, y] };
 
@@ -194,5 +195,38 @@ describe("buildContext", () => {
     expect(context.pathAt(...at(47.002, 8.00005))).toEqual({ tunnel: false, bridge: true, wide: false, sacGrade: 4, aided: false });
     expect(context.pathAt(...at(47.002, 8.00395))).toMatchObject({ wide: true, tunnel: false });
     expect(context.pathAt(...at(47.002, 8.002))).toBeNull();
+  });
+});
+
+describe("settings", () => {
+  const measurement = measure(ground((x) => 1000 - x * tan(30)), northbound(0), identity);
+
+  it("re-scores stored measurements without measuring again", () => {
+    const strict = score(measurement, { ...DEFAULT_PARAMS, thresholds: [10, 20, 30] });
+    const relaxed = score(measurement, { ...DEFAULT_PARAMS, thresholds: [60, 80, 95] });
+    expect(strict.summary.level).toBe("red");
+    expect(relaxed.summary.level).toBe("green");
+    expect(strict.points[40].score).toBe(relaxed.points[40].score);
+    expect(strict.thresholds).toEqual([10, 20, 30]);
+  });
+
+  it("shifts weight between drops and side slope", () => {
+    const point = (dropWeight: number) => score(measurement, { ...DEFAULT_PARAMS, dropWeight }).points[40].score!;
+    // On a 30° slope the side-slope share is 0.25 and the drop share about 0.55.
+    expect(point(0)).toBeCloseTo(25, 0);
+    expect(point(1)).toBeGreaterThan(point(0));
+  });
+
+  it("counts gentler ground as a fall when the fall steepness is lowered", () => {
+    const at = (fallSlopeDeg: number) =>
+      middle(measure(ground((x) => 1000 - x * tan(30)), northbound(0), identity, { params: { ...DEFAULT_MEASURE, fallSlopeDeg } }).points).metrics!;
+    expect(at(35).fallRight).toBe(0);
+    expect(at(25).fallRight).toBeGreaterThan(100);
+  });
+
+  it("rejects ranges and levels that are out of order", () => {
+    expect(settingsSchema.safeParse(DEFAULT_SETTINGS).success).toBe(true);
+    expect(settingsSchema.safeParse({ ...DEFAULT_SETTINGS, score: { ...DEFAULT_PARAMS, drop10M: [16, 4] } }).success).toBe(false);
+    expect(settingsSchema.safeParse({ ...DEFAULT_SETTINGS, score: { ...DEFAULT_PARAMS, thresholds: [50, 25, 75] } }).success).toBe(false);
   });
 });

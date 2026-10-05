@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { config } from "../config.js";
 import { registerAnalysesRoute } from "./routes/analyses.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerSettingsRoute } from "./routes/settings.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -26,6 +27,7 @@ export function buildServer(db: Database.Database) {
 
   registerHealthRoute(app);
   registerAnalysesRoute(app);
+  registerSettingsRoute(app);
 
   return app;
 }

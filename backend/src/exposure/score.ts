@@ -26,6 +26,12 @@ export interface ScoreParams {
   forestFactor: number;
   /** Multiplier on vehicle-width tracks and roads. */
   wideTrackFactor: number;
+  /** Share of the score that comes from drops; the rest comes from side slope. */
+  dropWeight: number;
+  /** Flagged stretches closer together than this are reported as one, metres. */
+  mergeGapM: number;
+  /** Isolated blips shorter than this are dropped unless they reach the top level, metres. */
+  minLengthM: number;
 }
 
 export const DEFAULT_PARAMS: ScoreParams = {
@@ -41,6 +47,9 @@ export const DEFAULT_PARAMS: ScoreParams = {
   thresholds: [25, 50, 75],
   forestFactor: 0.6,
   wideTrackFactor: 0.85,
+  dropWeight: 0.75,
+  mergeGapM: 30,
+  minLengthM: 10,
 };
 
 function ramp(value: number, [low, high]: [number, number]): number {
@@ -79,7 +88,8 @@ export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS
     ramp(m.drop30, params.drop30M),
     ramp(m.drop100, params.drop100M),
   );
-  let score = 100 * (0.75 * Math.max(fall, drop) + 0.25 * ramp(m.crossSlopeDeg, params.crossSlopeDeg));
+  let score =
+    100 * (params.dropWeight * Math.max(fall, drop) + (1 - params.dropWeight) * ramp(m.crossSlopeDeg, params.crossSlopeDeg));
   if (Math.min(m.dropLeft30, m.dropRight30) >= params.ridgeDropM) score *= params.ridgeFactor;
   score += 10 * ramp(Math.abs(m.trackGradeDeg), params.trackGradeDeg);
   score = Math.max(score, 100 * ramp(m.bridgeGap, params.bridgeGapM));
@@ -101,11 +111,6 @@ export interface Run {
   /** Peak of the smoothed score inside the run. */
   peak: number;
 }
-
-/** Flagged stretches closer together than this are reported as one. */
-const MERGE_GAP_M = 30;
-/** Isolated blips shorter than this are noise unless they reach red. */
-const MIN_LENGTH_M = 10;
 
 /**
  * Groups per-point scores into flagged stretches. Scores are median-smoothed,
@@ -143,7 +148,7 @@ export function findRuns(scores: Array<number | null>, spacing: number, params: 
   for (const run of runs) {
     const prev = merged[merged.length - 1];
     const gapHasData = prev && smoothed.slice(prev.end + 1, run.start).every((s) => s !== null);
-    if (prev && gapHasData && (run.start - prev.end - 1) * spacing <= MERGE_GAP_M) {
+    if (prev && gapHasData && (run.start - prev.end - 1) * spacing <= params.mergeGapM) {
       prev.end = run.end;
       prev.peak = Math.max(prev.peak, run.peak);
     } else {
@@ -151,6 +156,6 @@ export function findRuns(scores: Array<number | null>, spacing: number, params: 
     }
   }
   return merged.filter(
-    (run) => (run.end - run.start + 1) * spacing >= MIN_LENGTH_M || run.peak >= params.thresholds[2],
+    (run) => (run.end - run.start + 1) * spacing >= params.minLengthM || run.peak >= params.thresholds[2],
   );
 }

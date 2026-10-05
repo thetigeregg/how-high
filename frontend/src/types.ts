@@ -87,6 +87,8 @@ export interface Analysis {
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
   /** Absent on hikes analysed before map context existed. */
   mapContext?: boolean;
+  /** Score at which Mild, Exposed and Severe start. */
+  thresholds: [number, number, number];
   summary: {
     maxScore: number;
     level: Level;
@@ -119,4 +121,50 @@ export interface AnalysisDetail {
   summary: AnalysisSummary;
   marks: Mark[];
   result: Analysis;
+}
+
+type Pair = [number, number];
+
+/** Every tweakable knob; one set applies to all hikes. Mirrors the backend. */
+export interface Settings {
+  score: {
+    fallHeightM: Pair;
+    drop10M: Pair;
+    drop30M: Pair;
+    drop100M: Pair;
+    crossSlopeDeg: Pair;
+    trackGradeDeg: Pair;
+    bridgeGapM: Pair;
+    ridgeDropM: number;
+    ridgeFactor: number;
+    thresholds: [number, number, number];
+    forestFactor: number;
+    wideTrackFactor: number;
+    dropWeight: number;
+    mergeGapM: number;
+    minLengthM: number;
+  };
+  measure: {
+    fallSlopeDeg: number;
+    fallRunoutM: number;
+    gpsErrorM: number;
+    forestCheckM: number;
+  };
+  noGo: { cableCars: boolean; funiculars: boolean; rackRailways: boolean };
+}
+
+export interface Disagreement {
+  analysisId: number;
+  name: string;
+  kind: MarkKind;
+  startM: number;
+  endM: number;
+  level: Level;
+}
+
+export interface SettingsResponse {
+  settings: Settings;
+  defaults: Settings;
+  /** How the current settings agree with the marks across all hikes. */
+  fit: { marks: number; overFlagged: Disagreement[]; missed: Disagreement[] };
 }

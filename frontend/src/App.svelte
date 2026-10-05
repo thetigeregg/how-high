@@ -16,6 +16,7 @@
   import { km, LEVEL_COLOR, LEVEL_LABEL, LEVELS, pointLevels } from "./lib/levels.js";
   import RouteMap from "./lib/RouteMap.svelte";
   import SectionList from "./lib/SectionList.svelte";
+  import SettingsModal from "./lib/SettingsModal.svelte";
   import Upload from "./lib/Upload.svelte";
   import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating } from "./types.js";
 
@@ -122,6 +123,19 @@
   }
 
   let reanalysing = $state(false);
+  let settingsOpen = $state(false);
+
+  // Settings apply to every hike, so both the library and the open hike are stale after a change.
+  function settingsChanged() {
+    void run(async () => {
+      analyses = await fetchAnalyses();
+      if (selectedId !== null) {
+        const id = selectedId;
+        const loaded = await fetchAnalysis(id);
+        if (selectedId === id) detail = loaded;
+      }
+    });
+  }
 
   async function rerun() {
     if (!detail) return;
@@ -157,7 +171,10 @@
 
 <div class="layout">
   <aside>
-    <h1>How High</h1>
+    <div class="title">
+      <h1>How High</h1>
+      <button type="button" onclick={() => (settingsOpen = true)}>Settings</button>
+    </div>
     <Upload busy={uploading} onfile={upload} />
     <HikeLibrary {analyses} {selectedId} onselect={select} />
   </aside>
@@ -295,6 +312,10 @@
   </main>
 </div>
 
+{#if settingsOpen}
+  <SettingsModal onclose={() => (settingsOpen = false)} onchange={settingsChanged} />
+{/if}
+
 <style>
   .layout {
     display: grid;
@@ -307,6 +328,12 @@
     gap: 1rem;
     padding: 1rem;
     border-right: 1px solid var(--border);
+  }
+  .title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
   h1 {
     margin: 0;

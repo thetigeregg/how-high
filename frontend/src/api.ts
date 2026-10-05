@@ -1,4 +1,13 @@
-import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating } from "./types.js";
+import type {
+  AnalysisDetail,
+  AnalysisSummary,
+  Mark,
+  MarkKind,
+  Range,
+  Rating,
+  Settings,
+  SettingsResponse,
+} from "./types.js";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -49,4 +58,16 @@ export function createMark(analysisId: number, kind: MarkKind, range: Range): Pr
 
 export function deleteMark(analysisId: number, markId: number): Promise<void> {
   return request(`/api/analyses/${analysisId}/marks/${markId}`, { method: "DELETE" });
+}
+
+export function fetchSettings(): Promise<SettingsResponse> {
+  return request("/api/settings");
+}
+
+export function saveSettings(settings: Settings): Promise<SettingsResponse> {
+  return request("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
 }

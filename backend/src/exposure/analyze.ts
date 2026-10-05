@@ -6,7 +6,7 @@ import { resample, type TrackPoint } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
 import { loadTerrariumTerrain } from "../terrain/terrarium.js";
-import { measureTrack, type PointMetrics } from "./metrics.js";
+import { DEFAULT_MEASURE, measureTrack, type MeasureParams, type PointMetrics } from "./metrics.js";
 import { logger } from "../logger.js";
 import {
   adjustScore,
@@ -22,13 +22,9 @@ import {
 
 /** Terrain is needed this far around the track (longest ray plus fall traces). */
 const TERRAIN_BUFFER_M = 250;
-/** Assumed sideways GPS error the score is re-tested against. */
-const GPS_ERROR_M = 5;
 /** Swiss data is abandoned for the global fallback past this share of gaps. */
 const MAX_SWISS_GAP_SHARE = 0.02;
 
-/** How far to the exposed side the ground must still be wooded to count as forest. */
-const FOREST_SIDE_CHECK_M = 20;
 /** A side with less drop than this is not the exposed side. */
 const EXPOSED_SIDE_MIN_DROP_M = 3;
 /** Map context is fetched this far around the track. */
@@ -94,6 +90,8 @@ export interface Analysis {
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
   /** Whether forest, bridges, tunnels and path grades from OpenStreetMap were applied. */
   mapContext: boolean;
+  /** Score at which yellow, orange and red start, as used for this result. */
+  thresholds: [number, number, number];
   summary: {
     maxScore: number;
     level: Level;
@@ -102,6 +100,32 @@ export interface Analysis {
   };
   sections: Section[];
   points: AnalysedPoint[];
+}
+
+/**
+ * What was found along a track, before any scoring. This is what gets stored:
+ * scores are derived from it on demand, so settings can change freely.
+ */
+export interface Measurement {
+  name: string | null;
+  lengthM: number;
+  spacingM: number;
+  terrain: { source: string; cellSize: number; confidence: "high" | "low" };
+  swiss: boolean;
+  mapContext: boolean;
+  /** The measurement settings this was taken with. */
+  params: MeasureParams;
+  points: Array<{
+    dist: number;
+    lon: number;
+    lat: number;
+    /** Unit vector of travel in the metric plane. */
+    heading: [number, number];
+    metrics: PointMetrics | null;
+    /** The same measurements with the track shifted left and right by the GPS error. */
+    shifted: [PointMetrics | null, PointMetrics | null];
+    context: PointContext | null;
+  }>;
 }
 
 interface Prepared {
@@ -131,7 +155,7 @@ async function prepare(gpx: GpxTrack): Promise<Prepared> {
   return { projection, terrain, track, swiss: false };
 }
 
-function buildSection(points: AnalysedPoint[], track: TrackPoint[], start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
+function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
   let worstIndex = start;
   let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxCrossSlopeDeg = 0, bridge = false;
   let known = 0, wooded = 0, wide = 0;
@@ -169,7 +193,7 @@ function buildSection(points: AnalysedPoint[], track: TrackPoint[], start: numbe
   const side = lesser >= params.ridgeDropM && lesser >= 0.6 * Math.max(left, right) ? "both" : left >= right ? "left" : "right";
 
   // Bearing of the drop: the track's left or right normal, clockwise from north.
-  const { tx, ty } = track[worstIndex];
+  const [tx, ty] = headings[worstIndex];
   const [vx, vy] = side === "right" ? [ty, -tx] : [-ty, tx];
   const bearing = (Math.atan2(vx, vy) * 180) / Math.PI;
   const dropTowards = COMPASS[Math.round(((bearing + 360) % 360) / 45) % 8];
@@ -201,7 +225,7 @@ function buildSection(points: AnalysedPoint[], track: TrackPoint[], start: numbe
 }
 
 /** Looks up what the map knows about one track point, given which way it is exposed. */
-function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics): PointContext {
+function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics, forestCheckM: number): PointContext {
   const left = Math.max(m.fallLeft, m.dropLeft30);
   const right = Math.max(m.fallRight, m.dropRight30);
   // Trees only hide a drop if they also stand on the side(s) it is on.
@@ -212,7 +236,7 @@ function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics):
   const forest =
     sides.length === 0
       ? context.inForest(p.x, p.y)
-      : sides.every((s) => wooded(s, FOREST_SIDE_CHECK_M / 2) && wooded(s, FOREST_SIDE_CHECK_M));
+      : sides.every((s) => wooded(s, forestCheckM / 2) && wooded(s, forestCheckM));
   const path = context.pathAt(p.x, p.y);
   return {
     forest,
@@ -226,68 +250,98 @@ function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics):
   };
 }
 
-/** Scores an already-prepared track against a terrain. Pure, so tests can feed it synthetic ground. */
-export function analyseTrack(
+/**
+ * Measures an already-prepared track against a terrain. Pure, so tests can
+ * feed it synthetic ground. The result holds no scores, only what was found.
+ */
+export function measure(
   terrain: Terrain,
   track: TrackPoint[],
   projection: Projection,
-  options: { name?: string | null; swiss?: boolean; params?: ScoreParams; context?: TerrainContext } = {},
-): Analysis {
-  const params = options.params ?? DEFAULT_PARAMS;
-  const swiss = options.swiss ?? false;
-  const spacing = track[1].dist - track[0].dist;
+  options: { name?: string | null; swiss?: boolean; context?: TerrainContext; params?: MeasureParams } = {},
+): Measurement {
+  const params = options.params ?? DEFAULT_MEASURE;
+  const centre = measureTrack(terrain, track, 0, params);
+  const left = measureTrack(terrain, track, params.gpsErrorM, params);
+  const right = measureTrack(terrain, track, -params.gpsErrorM, params);
 
-  const centre = measureTrack(terrain, track);
-  const shifted = [measureTrack(terrain, track, GPS_ERROR_M), measureTrack(terrain, track, -GPS_ERROR_M)];
+  return {
+    name: options.name ?? null,
+    lengthM: track[track.length - 1].dist,
+    spacingM: track[1].dist - track[0].dist,
+    terrain: { source: terrain.source, cellSize: terrain.cellSize, confidence: options.swiss ? "high" : "low" },
+    swiss: options.swiss ?? false,
+    mapContext: options.context !== undefined,
+    params,
+    points: track.map((p, i) => {
+      const [lon, lat] = projection.inverse(p.x, p.y);
+      const metrics = centre[i];
+      return {
+        dist: p.dist,
+        lon,
+        lat,
+        heading: [p.tx, p.ty],
+        metrics,
+        shifted: [left[i], right[i]],
+        context: metrics && options.context ? describePoint(options.context, p, metrics, params.forestCheckM) : null,
+      };
+    }),
+  };
+}
 
-  const points: AnalysedPoint[] = track.map((p, i) => {
-    const [lon, lat] = projection.inverse(p.x, p.y);
-    const measured = centre[i];
-    if (!measured) {
-      return { dist: p.dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
+/** Turns measurements into scores, levels and flagged sections under the given settings. */
+export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PARAMS): Analysis {
+  const { spacingM: spacing, lengthM } = measurement;
+
+  const points: AnalysedPoint[] = measurement.points.map((p) => {
+    const { dist, lon, lat, context } = p;
+    if (!p.metrics) {
+      return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
     }
-    const context = options.context ? describePoint(options.context, p, measured) : null;
     // The terrain-only bridge guess is dropped where the map shows a path that is not a bridge.
     const disproved = context !== null && context.matched && !context.bridge;
     const settle = (m: PointMetrics) => (disproved ? { ...m, bridgeGap: 0 } : m);
-    const metrics = settle(measured);
+    const metrics = settle(p.metrics);
     const rawScore = scorePoint(metrics, params);
-    const score = adjustScore(rawScore, context, params);
+    const adjusted = adjustScore(rawScore, context, params);
     const variants = [
-      score,
-      ...shifted.flatMap((s) => (s[i] ? [adjustScore(scorePoint(settle(s[i]!), params), context, params)] : [])),
+      adjusted,
+      ...p.shifted.flatMap((m) => (m ? [adjustScore(scorePoint(settle(m), params), context, params)] : [])),
     ];
     return {
-      dist: p.dist,
+      dist,
       lon,
       lat,
-      score,
+      score: adjusted,
       rawScore,
       context,
       scoreLow: Math.min(...variants),
       scoreHigh: Math.max(...variants),
-      level: levelOf(score, params),
+      level: levelOf(adjusted, params),
       metrics,
     };
   });
 
+  const headings = measurement.points.map((p) => p.heading);
   const runs = findRuns(points.map((p) => p.score), spacing, params);
-  const sections = runs.map((run) => buildSection(points, track, run.start, run.end, run.peak, spacing, swiss, params));
+  const sections = runs.map((run) =>
+    buildSection(points, headings, run.start, run.end, run.peak, spacing, measurement.swiss, params),
+  );
 
   // Length per level comes from the sections, so it matches what is listed.
   const lengthByLevelM = Object.fromEntries(LEVELS.map((level) => [level, 0])) as Record<Level, number>;
   for (const section of sections) lengthByLevelM[section.level] += section.lengthM;
   const noDataM = points.filter((p) => p.score === null).length * spacing;
-  const lengthM = track[track.length - 1].dist;
   lengthByLevelM.green = Math.max(0, lengthM - noDataM - lengthByLevelM.yellow - lengthByLevelM.orange - lengthByLevelM.red);
   const maxScore = Math.max(0, ...sections.map((s) => s.maxScore));
 
   return {
-    name: options.name ?? null,
+    name: measurement.name,
     lengthM,
     spacingM: spacing,
-    terrain: { source: terrain.source, cellSize: terrain.cellSize, confidence: swiss ? "high" : "low" },
-    mapContext: options.context !== undefined,
+    terrain: measurement.terrain,
+    mapContext: measurement.mapContext,
+    thresholds: params.thresholds,
     summary: {
       maxScore,
       level: sections.reduce<Level>((worst, s) => (LEVELS.indexOf(s.level) > LEVELS.indexOf(worst) ? s.level : worst), "green"),
@@ -297,6 +351,16 @@ export function analyseTrack(
     sections,
     points,
   };
+}
+
+/** Measures and scores in one go. */
+export function analyseTrack(
+  terrain: Terrain,
+  track: TrackPoint[],
+  projection: Projection,
+  options: { name?: string | null; swiss?: boolean; params?: ScoreParams; context?: TerrainContext; measure?: MeasureParams } = {},
+): Analysis {
+  return score(measure(terrain, track, projection, { ...options, params: options.measure }), options.params);
 }
 
 /** Map context around the track, or undefined when OpenStreetMap cannot be reached. */
@@ -331,10 +395,10 @@ async function loadContext(track: TrackPoint[], projection: Projection): Promise
   }
 }
 
-/** Full pipeline for one GPX track: pick and fetch terrain, then score. */
-export async function analyseGpx(gpx: GpxTrack, params?: ScoreParams): Promise<Analysis> {
+/** Everything slow for one GPX track: pick and fetch terrain and map context, then measure. */
+export async function measureGpx(gpx: GpxTrack, params: MeasureParams = DEFAULT_MEASURE): Promise<Measurement> {
   const { projection, terrain, track, swiss } = await prepare(gpx);
-  return analyseTrack(terrain, track, projection, {
+  return measure(terrain, track, projection, {
     name: gpx.name,
     swiss,
     params,

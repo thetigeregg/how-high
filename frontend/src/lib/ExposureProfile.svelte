@@ -34,8 +34,6 @@
   const AXIS_H = 22;
   const HEIGHT = M.top + ELEVATION_H + GAP + SCORE_H + AXIS_H;
   const SCORE_TOP = M.top + ELEVATION_H + GAP;
-  // Where yellow, orange and red start; mirrors the backend defaults.
-  const THRESHOLDS = [25, 50, 75];
 
   let width = $state(800);
   const plotW = $derived(Math.max(100, width - M.left - M.right));
@@ -159,7 +157,7 @@
     {/each}
     <text class="label" x={M.left} y={M.top + 2} dominant-baseline="hanging">Elevation (m)</text>
 
-    {#each THRESHOLDS as t}
+    {#each analysis.thresholds as t}
       <line class="grid" x1={M.left} x2={M.left + plotW} y1={yScore(t)} y2={yScore(t)} />
       <text class="tick" x={M.left - 6} y={yScore(t)} text-anchor="end" dominant-baseline="middle">{t}</text>
     {/each}

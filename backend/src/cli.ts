@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import { analyseGpx } from "./exposure/analyze.js";
+import { measureGpx, score } from "./exposure/analyze.js";
 import { parseGpx } from "./gpx/parse.js";
 
-// Tuning tool: analyse one GPX file and print the flagged sections.
+// Tuning tool: analyse one GPX file with the default settings and print the flagged sections.
 //   npm run analyze -- hike.gpx [--json out.json]
 
 const args = process.argv.slice(2);
@@ -17,7 +17,7 @@ if (!file || (jsonFlag >= 0 && !jsonOut)) {
 
 const km = (m: number) => (m / 1000).toFixed(2);
 
-const analysis = await analyseGpx(parseGpx(fs.readFileSync(file, "utf-8")));
+const analysis = score(await measureGpx(parseGpx(fs.readFileSync(file, "utf-8"))));
 const { summary, terrain, sections } = analysis;
 
 console.log(`\n${analysis.name ?? file} — ${km(analysis.lengthM)} km`);

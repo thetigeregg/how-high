@@ -3,8 +3,10 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "../../config.js";
-import { analyseGpx } from "../../exposure/analyze.js";
+import { measureGpx, score } from "../../exposure/analyze.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
+import { gpxPath, loadAnalysis, remeasure } from "../../hikes.js";
+import { loadSettings } from "../../settings.js";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -91,7 +93,9 @@ export function registerAnalysesRoute(app: FastifyInstance) {
       return reply.status(400).send({ error: (err as Error).message });
     }
 
-    const analysis = await analyseGpx(gpx);
+    const settings = loadSettings(app.db);
+    const measurement = await measureGpx(gpx, settings.measure);
+    const analysis = score(measurement, settings.score);
     const name = analysis.name ?? path.basename(upload.filename, path.extname(upload.filename));
     const { lastInsertRowid } = app.db
       .prepare(
@@ -106,33 +110,27 @@ export function registerAnalysesRoute(app: FastifyInstance) {
         analysis.summary.maxScore,
         analysis.terrain.source,
         analysis.terrain.confidence,
-        JSON.stringify(analysis),
+        JSON.stringify(measurement),
       );
     const id = Number(lastInsertRowid);
     // The original file is kept so hikes can be re-scored when the model changes.
     fs.mkdirSync(config.uploadsDir, { recursive: true });
-    fs.writeFileSync(path.join(config.uploadsDir, `${id}.gpx`), xml);
+    fs.writeFileSync(gpxPath(id), xml);
 
     return reply.status(201).send(serialize(getRow(id)!));
   });
 
   app.get("/api/analyses/:id", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
-    const row = id.success
-      ? (app.db.prepare(`SELECT ${SUMMARY_COLUMNS}, result FROM analyses WHERE id = ?`).get(id.data) as
-          | (AnalysisRow & { result: string })
-          | undefined)
-      : undefined;
-    if (!row) return reply.status(404).send({ error: "not found" });
+    if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });
+    const analysis = await loadAnalysis(app.db, id.data);
+    if (!analysis) return reply.status(409).send({ error: "this hike has no stored GPX to measure again; upload it anew" });
+    // Read after loading: measuring again refreshes the summary columns.
+    const row = getRow(id.data)!;
     const marks = app.db
       .prepare("SELECT * FROM marks WHERE analysis_id = ? ORDER BY start_m, id")
       .all(row.id) as MarkRow[];
-    // The stored JSON is spliced in as-is rather than parsed and re-serialised.
-    return reply
-      .type("application/json")
-      .send(
-        `{"summary":${JSON.stringify(serialize(row))},"marks":${JSON.stringify(marks.map(serializeMark))},"result":${row.result}}`,
-      );
+    return { summary: serialize(row), marks: marks.map(serializeMark), result: analysis };
   });
 
   app.post("/api/analyses/:id/marks", async (request, reply) => {
@@ -164,27 +162,14 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // Re-runs the analysis from the stored GPX, e.g. after the scoring model has
-  // changed. The hike's name, rating and marks are kept.
+  // Measures the hike again from the stored GPX, e.g. to retry map context
+  // that was unavailable. The hike's name, rating and marks are kept.
   app.post("/api/analyses/:id/reanalyse", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
-    const file = id.success ? path.join(config.uploadsDir, `${id.data}.gpx`) : "";
-    if (!id.success || !getRow(id.data) || !fs.existsSync(file)) return reply.status(404).send({ error: "not found" });
-    const analysis = await analyseGpx(parseGpx(fs.readFileSync(file, "utf-8")));
-    app.db
-      .prepare(
-        `UPDATE analyses SET length_m = ?, level = ?, max_score = ?, terrain_source = ?, confidence = ?, result = ?
-         WHERE id = ?`,
-      )
-      .run(
-        analysis.lengthM,
-        analysis.summary.level,
-        analysis.summary.maxScore,
-        analysis.terrain.source,
-        analysis.terrain.confidence,
-        JSON.stringify(analysis),
-        id.data,
-      );
+    if (!id.success || !getRow(id.data) || !fs.existsSync(gpxPath(id.data))) {
+      return reply.status(404).send({ error: "not found" });
+    }
+    await remeasure(app.db, id.data, loadSettings(app.db));
     return serialize(getRow(id.data)!);
   });
 
@@ -207,7 +192,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });
     app.db.prepare("DELETE FROM analyses WHERE id = ?").run(id.data);
-    fs.rmSync(path.join(config.uploadsDir, `${id.data}.gpx`), { force: true });
+    fs.rmSync(gpxPath(id.data), { force: true });
     return reply.status(204).send();
   });
 }
