@@ -50,6 +50,9 @@ export function parseGpx(xml: string): GpxTrack {
   }
   if (points.length < 2) throw new Error("GPX file has no track or route with at least two points");
 
-  const rawName = tracks[0]?.name ?? routes[0]?.name ?? gpx.metadata?.name ?? null;
-  return { name: rawName === null ? null : String(rawName), points };
+  // Some apps write an empty <name/>; the first name with any text in it wins.
+  const name = [tracks[0]?.name, routes[0]?.name, gpx.metadata?.name]
+    .map((candidate) => (candidate === undefined || candidate === null ? "" : String(candidate).trim()))
+    .find((candidate) => candidate !== "");
+  return { name: name ?? null, points };
 }

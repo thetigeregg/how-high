@@ -12,6 +12,14 @@ describe("parseGpx", () => {
     expect(gpx.points).toEqual([{ lat: 46.1, lon: 7.1 }, { lat: 46.2, lon: 7.2 }, { lat: 46.3, lon: 7.3 }]);
   });
 
+  it("treats an empty name as no name", () => {
+    const points = `<trkseg><trkpt lat="46.1" lon="7.1"/><trkpt lat="46.2" lon="7.2"/></trkseg>`;
+    expect(parseGpx(`<gpx><metadata><name /></metadata><trk>${points}</trk></gpx>`).name).toBeNull();
+    expect(parseGpx(`<gpx><metadata><name>From metadata</name></metadata><trk><name/>${points}</trk></gpx>`).name).toBe(
+      "From metadata",
+    );
+  });
+
   it("falls back to route points", () => {
     const gpx = parseGpx(`<gpx><rte><rtept lat="46.1" lon="7.1"/><rtept lat="46.2" lon="7.2"/></rte></gpx>`);
     expect(gpx.points).toHaveLength(2);

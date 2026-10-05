@@ -27,6 +27,20 @@
   let selectedId = $state<number | null>(null);
   let uploading = $state(false);
   let linksAvailable = $state(false);
+  // Hikes and routes are listed separately; this is the list showing in the sidebar.
+  let tab = $state<"hike" | "route">("hike");
+  const listed = $derived(analyses.filter((a) => a.kind === tab));
+  const counts = $derived({
+    hike: analyses.filter((a) => a.kind === "hike").length,
+    route: analyses.filter((a) => a.kind === "route").length,
+  });
+
+  function showTab(kind: "hike" | "route") {
+    tab = kind;
+    // Keep the open entry in step with the list, when the list has anything.
+    const first = analyses.find((a) => a.kind === kind);
+    if (first && analyses.find((a) => a.id === selectedId)?.kind !== kind) void select(first.id);
+  }
   let loading = $state(false);
   let error = $state<string | null>(null);
   let hoverIndex = $state<number | null>(null);
@@ -51,6 +65,8 @@
 
   async function select(id: number, then: Range | null = null) {
     selectedId = id;
+    // Following a link to a stretch on the other list switches lists with it.
+    tab = analyses.find((a) => a.id === id)?.kind ?? tab;
     // Keeps the open hike across reloads and makes it linkable.
     history.replaceState(null, "", `#${id}`);
     hoverIndex = null;
@@ -127,6 +143,14 @@
     });
   }
 
+  function rename() {
+    if (!detail) return;
+    const { id, name } = detail.summary;
+    const next = prompt("Name", name)?.trim();
+    if (!next || next === name) return;
+    void run(async () => replaceSummary(await updateAnalysis(id, { name: next })));
+  }
+
   let reanalysing = $state(false);
   let settingsOpen = $state(false);
 
@@ -161,7 +185,8 @@
       analyses = analyses.filter((a) => a.id !== id);
       detail = null;
       selectedId = null;
-      if (analyses.length > 0) await select(analyses[0].id);
+      const next = analyses.find((a) => a.kind === tab) ?? analyses[0];
+      if (next) await select(next.id);
     });
   }
 
@@ -185,7 +210,8 @@
     void run(async () => {
       analyses = await fetchAnalyses();
       const linked = analyses.find((a) => a.id === Number(location.hash.slice(1)));
-      if (analyses.length > 0) await select((linked ?? analyses[0]).id);
+      const first = linked ?? analyses.find((a) => a.kind === "hike") ?? analyses[0];
+      if (first) await select(first.id);
     });
   });
 </script>
@@ -196,13 +222,34 @@
       <h1>How High</h1>
       <button type="button" onclick={() => (settingsOpen = true)}>Settings</button>
     </div>
+    {#if linksAvailable || counts.route > 0}
+      <div class="tabs" role="tablist" aria-label="What to list">
+        {#each [{ kind: "hike", label: "Hikes" }, { kind: "route", label: "Routes" }] as const as t}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === t.kind}
+            class:active={tab === t.kind}
+            onclick={() => showTab(t.kind)}
+          >
+            {t.label} <span>{counts[t.kind]}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     <Upload
       busy={uploading}
+      kind={tab}
       links={linksAvailable}
       onfile={(file) => add(() => uploadGpx(file))}
       onlink={(url) => add(() => addRoute(url))}
     />
-    <HikeLibrary {analyses} {selectedId} onselect={select} />
+    <HikeLibrary
+      analyses={listed}
+      {selectedId}
+      onselect={select}
+      empty={tab === "hike" ? "No hikes yet." : "No routes yet."}
+    />
   </aside>
 
   <main>
@@ -214,7 +261,10 @@
       {@const result = detail.result}
       <header>
         <div>
-          <h2>{detail.summary.name}</h2>
+          <h2>
+            {detail.summary.name || "Untitled"}
+            <button type="button" class="rename" onclick={rename}>Rename</button>
+          </h2>
           <p class="meta">
             <LevelBadge level={result.summary.level} />
             <span>peak score {result.summary.maxScore}</span>
@@ -384,6 +434,32 @@
     padding: 1rem;
     border-right: 1px solid var(--border);
   }
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 0.6rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+  }
+  .tabs button {
+    border: none;
+    border-radius: 0.45rem;
+    background: none;
+    font-size: 0.9rem;
+  }
+  .tabs button.active {
+    background: var(--bg);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .tabs span {
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 0.2rem;
+  }
   .title {
     display: flex;
     align-items: center;
@@ -475,6 +551,12 @@
     border-color: var(--accent);
     background: var(--accent);
     color: #ffffff;
+  }
+  button.rename {
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    font-weight: 400;
+    color: var(--text-muted);
   }
   button.spaced {
     margin-left: 0.6rem;

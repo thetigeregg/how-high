@@ -7,22 +7,29 @@
     analyses,
     selectedId,
     onselect,
-  }: { analyses: AnalysisSummary[]; selectedId: number | null; onselect: (id: number) => void } = $props();
+    empty,
+  }: {
+    analyses: AnalysisSummary[];
+    selectedId: number | null;
+    onselect: (id: number) => void;
+    /** Shown when the list has nothing in it. */
+    empty: string;
+  } = $props();
 
   const ratingLabel: Record<Rating, string> = { fine: "was fine", uneasy: "was uneasy", bad: "was bad" };
 </script>
 
 {#if analyses.length === 0}
-  <p class="empty">Nothing here yet.</p>
+  <p class="empty">{empty}</p>
 {:else}
   <ul>
     {#each analyses as a (a.id)}
       <li>
         <button type="button" class:selected={a.id === selectedId} onclick={() => onselect(a.id)}>
-          <span class="name">{a.name}</span>
+          <span class="name">{a.name || "Untitled"}</span>
           <span class="meta">
             <LevelBadge level={a.level} />
-            <span>{a.kind === "route" ? "Route, " : ""}{km(a.lengthM)}</span>
+            <span>{km(a.lengthM)}</span>
             {#if a.rating}<span>{ratingLabel[a.rating]}</span>{/if}
           </span>
         </button>
