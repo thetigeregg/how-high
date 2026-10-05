@@ -251,6 +251,24 @@
     });
   }
 
+  /**
+   * For a long stretch marked as difficult: how much of it the model flags at
+   * all. Shown beside the mark, so a stretch that was bad throughout but is
+   * mostly rated Easy stands out.
+   */
+  function flaggedShare(mark: Mark): number | null {
+    if (!detail || mark.kind === "fine" || mark.endM - mark.startM < 300) return null;
+    const { points, thresholds } = detail.result;
+    let scored = 0;
+    let flagged = 0;
+    for (const p of points) {
+      if (p.dist < mark.startM || p.dist > mark.endM || p.score === null || p.context?.tunnel) continue;
+      scored++;
+      if (p.score >= thresholds[0]) flagged++;
+    }
+    return scored === 0 ? null : flagged / scored;
+  }
+
   function changeCause(mark: Mark, cause: MarkCause | null) {
     if (!detail) return;
     const id = detail.summary.id;
@@ -586,6 +604,10 @@
                   {kmRange(mark)}
                 </button>
                 {#if mark.kind !== "fine"}
+                  {@const share = flaggedShare(mark)}
+                  {#if share !== null}
+                    <span class="share">the model flags {Math.round(share * 100)}% of it</span>
+                  {/if}
                   <label class="cause">
                     because of
                     <select
@@ -930,6 +952,10 @@
     align-items: center;
     gap: 0.4rem;
     margin-right: auto;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  .share {
     color: var(--text-muted);
     font-size: 0.85rem;
   }

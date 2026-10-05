@@ -245,6 +245,8 @@ export interface Disagreement {
   startM: number;
   endM: number;
   level: Level;
+  /** Share of the stretch the model flags at all, 0 to 1. */
+  flaggedShare: number | null;
 }
 
 export interface SettingsResponse {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
 import { analyseTrack } from "./analyze.js";
-import { distance, mostSimilar, profileOf, verdictFor, type Profile, type Reference } from "./compare.js";
+import { distance, flaggedShare, judgeMark, mostSimilar, profileOf, verdictFor, type Profile, type Reference } from "./compare.js";
 import { DEFAULT_PARAMS } from "./score.js";
 
 const base: Profile = { score: 60, fallM: 20, drop100M: 50, crossSlopeDeg: 35, forest: false };
@@ -102,5 +102,38 @@ describe("verdict on a route not done yet", () => {
   it("only judges by marks of the same kind of travel, and says nothing without any", () => {
     expect(verdictFor(route([91, 100]), marks.map((m) => ({ ...m, routeProfile: "road" as const })))).toBeNull();
     expect(verdictFor(route([91, 100]), [])).toBeNull();
+  });
+});
+
+describe("judging a mark against the model", () => {
+  const identity: Projection = { name: "test", forward: (x, y) => [x, y], inverse: (x, y) => [x, y] };
+  // 1 km of flat ground with one 100 m stretch of 45° slope in the middle.
+  const terrain = { source: "synthetic", cellSize: 2, elevation: (x: number, y: number) => (Math.abs(y) < 50 ? 1000 - Math.max(0, x + 2) : 1000) };
+  const analysis = analyseTrack(terrain, resample([[0, -500], [0, 500]], 5), identity);
+
+  it("measures how much of a stretch is flagged", () => {
+    expect(flaggedShare(analysis, 0, 1000)!).toBeGreaterThan(0.08);
+    expect(flaggedShare(analysis, 0, 1000)!).toBeLessThan(0.2);
+    expect(flaggedShare(analysis, 460, 540)).toBe(1);
+    expect(flaggedShare(analysis, 0, 300)).toBe(0);
+    expect(flaggedShare(analysis, 5000, 6000)).toBeNull();
+  });
+
+  it("agrees with a short bad mark on the steep spot, and with fine marks on the flat", () => {
+    expect(judgeMark(analysis, "bad", 460, 540).disagreement).toBeNull();
+    expect(judgeMark(analysis, "fine", 0, 300).disagreement).toBeNull();
+  });
+
+  it("disagrees when a long stretch marked bad is mostly shown as easy", () => {
+    const judged = judgeMark(analysis, "bad", 0, 1000);
+    expect(judged.level).toBe("red");
+    expect(judged.disagreement).toBe("missed");
+    // Uneasy over the same stretch may have been so in places; one flagged spot is enough.
+    expect(judgeMark(analysis, "uneasy", 0, 1000).disagreement).toBeNull();
+  });
+
+  it("still catches the plain cases", () => {
+    expect(judgeMark(analysis, "fine", 0, 1000).disagreement).toBe("overFlagged");
+    expect(judgeMark(analysis, "uneasy", 0, 300).disagreement).toBe("missed");
   });
 });

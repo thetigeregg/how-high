@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { score, type Analysis, type Measurement, type Profile } from "./exposure/analyze.js";
-import { profileOf, verdictFor, type MarkKind, type Reference, type Verdict } from "./exposure/compare.js";
-import { LEVELS, type Level, type ScoreParams } from "./exposure/score.js";
+import { judgeMark, LONG_MARK_M, profileOf, verdictFor, type MarkKind, type Reference, type Verdict } from "./exposure/compare.js";
+import type { Level, ScoreParams } from "./exposure/score.js";
 import { stretchOf, tune, TUNABLE_FACTORS, TUNABLE_RANGES, type Cause } from "./exposure/tune.js";
 import { scoreWith, type Disagreement } from "./hikes.js";
 import { loadSettings, type Settings } from "./settings.js";
@@ -69,12 +69,9 @@ function stateUnder(entries: Entry[], marks: Mark[], settings: Settings) {
     const profile = profileOf(analysis, mark.startM, endM);
     if (profile) references.push({ ...mark, name, endM, profile, routeProfile: analysis.profile });
     if (mark.kind === "turned_back") continue;
-    const level = analysis.sections
-      .filter((s) => s.startM <= mark.endM && s.endM >= mark.startM)
-      .reduce<Level>((worst, s) => (LEVELS.indexOf(s.level) > LEVELS.indexOf(worst) ? s.level : worst), "green");
-    const disagreement = { ...mark, name, level };
-    if (mark.kind === "fine" && LEVELS.indexOf(level) >= LEVELS.indexOf("orange")) overFlagged.push(disagreement);
-    if (mark.kind !== "fine" && level === "green") missed.push(disagreement);
+    const { level, flaggedShare, disagreement } = judgeMark(analysis, mark.kind, mark.startM, mark.endM);
+    if (disagreement === "overFlagged") overFlagged.push({ ...mark, name, level, flaggedShare });
+    if (disagreement === "missed") missed.push({ ...mark, name, level, flaggedShare });
   }
 
   const states = new Map<number, EntryState>();
@@ -114,7 +111,7 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
     const stretch = stretchOf(measurement, mark.startM, endM);
     // A fine stretch was fine on every count; a difficult one is held against what it was put down to.
     const cause: Cause = mark.kind !== "fine" && (mark.cause === "drops" || mark.cause === "view") ? mark.cause : null;
-    return stretch ? [{ kind: mark.kind, cause, measurement: stretch }] : [];
+    return stretch ? [{ kind: mark.kind, cause, long: mark.endM - mark.startM >= LONG_MARK_M, measurement: stretch }] : [];
   });
 
   const key = paramsKey(profile);
@@ -124,7 +121,10 @@ export function suggest(db: Database.Database, profile: Profile): Proposal {
         ? score(measurement, params, { walkParams: settings.score, noGo: settings.noGo })
         : score(measurement, params, { noGo: settings.noGo });
     const pick = cause === "drops" ? "dropScore" : cause === "view" ? "viewScore" : "score";
-    return Math.max(0, ...scored.points.map((p) => p[pick] ?? 0));
+    // Tunnels and unscored ground say nothing about how the stretch felt.
+    const values = scored.points.filter((p) => p.score !== null && !p.context?.tunnel).map((p) => p[pick] ?? 0);
+    values.sort((a, b) => a - b);
+    return { peak: values[values.length - 1] ?? 0, typical: values[Math.floor(values.length / 2)] ?? 0 };
   };
   const tuned = stretches.length > 0 ? tune(stretches, settings[key], peakOf).params : settings[key];
   const proposed: Settings = { ...settings, [key]: tuned };

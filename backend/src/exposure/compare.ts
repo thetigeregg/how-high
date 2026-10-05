@@ -144,3 +144,43 @@ export function mostSimilar(profile: Profile, references: Reference[], params: S
   }
   return best;
 }
+
+/** A stretch marked bad over more than this is taken to have been bad along its length, not at one spot. */
+export const LONG_MARK_M = 300;
+/** ...and the model agrees only if at least this share of it is flagged. */
+export const LONG_MARK_MIN_SHARE = 0.5;
+
+/** The share of a stretch the model flags at all (Mild or worse), leaving out tunnels and unscored ground. */
+export function flaggedShare(analysis: Analysis, startM: number, endM: number): number | null {
+  let scored = 0;
+  let flagged = 0;
+  for (const p of analysis.points) {
+    if (p.dist < startM || p.dist > endM || p.score === null || p.context?.tunnel) continue;
+    scored++;
+    if (p.score >= analysis.thresholds[0]) flagged++;
+  }
+  return scored === 0 ? null : flagged / scored;
+}
+
+/**
+ * Whether the model and a mark disagree, and how.
+ * - `overFlagged`: marked fine, but something in it is rated Exposed or Severe.
+ * - `missed`: marked uneasy or bad, but all of it is rated Easy; or marked bad
+ *   over a long stretch of which the model flags less than half. Judging a
+ *   long stretch by its single worst spot would call that agreement.
+ */
+export function judgeMark(analysis: Analysis, kind: MarkKind, startM: number, endM: number) {
+  const order = ["green", "yellow", "orange", "red"];
+  const level = analysis.sections
+    .filter((s) => s.startM <= endM && s.endM >= startM)
+    .reduce((worst, s) => (order.indexOf(s.level) > order.indexOf(worst) ? s.level : worst), "green" as Analysis["summary"]["level"]);
+  const share = flaggedShare(analysis, startM, endM);
+  const underRead = kind === "bad" && endM - startM >= LONG_MARK_M && share !== null && share < LONG_MARK_MIN_SHARE;
+  const disagreement =
+    kind === "fine" && order.indexOf(level) >= order.indexOf("orange")
+      ? ("overFlagged" as const)
+      : kind !== "fine" && (level === "green" || underRead)
+        ? ("missed" as const)
+        : null;
+  return { level, flaggedShare: share, disagreement };
+}

@@ -362,8 +362,14 @@
   }
 
   const km = (m: number) => (m / 1000).toFixed(2);
-  const describe = (d: Disagreement) =>
-    `${d.name}, km ${km(d.startM)}–${km(d.endM)}: you marked it ${d.kind}, shown as ${LEVEL_LABEL[d.level]}`;
+  const describe = (d: Disagreement) => {
+    const where = `${d.name || "Untitled"}, km ${km(d.startM)}–${km(d.endM)}`;
+    // A long stretch marked bad with something flagged in it, but most of it shown as easy.
+    if (d.kind === "bad" && d.level !== "green" && d.flaggedShare !== null) {
+      return `${where}: you marked all of it bad, but only ${Math.round(d.flaggedShare * 100)}% of it is flagged`;
+    }
+    return `${where}: you marked it ${d.kind}, shown as ${LEVEL_LABEL[d.level]}`;
+  };
 
   onMount(() => {
     dialog.showModal();
@@ -397,7 +403,7 @@
         <p>
           Across {data.fit.marks} marked {data.fit.marks === 1 ? "stretch" : "stretches"}:
           <strong>{data.fit.overFlagged.length}</strong> marked fine but shown Exposed or Severe,
-          <strong>{data.fit.missed.length}</strong> marked uneasy or bad but shown Easy.
+          <strong>{data.fit.missed.length}</strong> marked uneasy or bad but shown Easy, or mostly Easy.
         </p>
         {#if data.fit.overFlagged.length + data.fit.missed.length > 0}
           <ul>

@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { config } from "./config.js";
 import { MEASURE_VERSION, score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
 import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.js";
-import { mostSimilar, profileOf, verdictFor, type MarkKind, type Reference } from "./exposure/compare.js";
+import { judgeMark, mostSimilar, profileOf, verdictFor, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
 import { logger } from "./logger.js";
@@ -147,12 +147,15 @@ export interface Disagreement {
   endM: number;
   /** Worst level the model gives anywhere in the marked stretch. */
   level: Level;
+  /** Share of the stretch the model flags at all, 0 to 1; null if none of it is scored. */
+  flaggedShare: number | null;
 }
 
 /**
  * How well the current settings agree with the user's own marks: stretches
  * marked fine that the model rates exposed or severe, and stretches marked
- * uneasy or bad that the model leaves green.
+ * uneasy or bad that the model leaves green or, for a long stretch marked
+ * bad, mostly green.
  */
 export async function fitAgainstMarks(db: Database.Database, settings = loadSettings(db)) {
   const marks = db
@@ -161,7 +164,7 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
        FROM marks m JOIN analyses a ON a.id = m.analysis_id
        WHERE m.kind != 'turned_back' AND (m.kind = 'fine' OR m.cause IS NULL OR m.cause != 'other') ORDER BY m.analysis_id, m.start_m`,
     )
-    .all() as Array<Omit<Disagreement, "level">>;
+    .all() as Array<Omit<Disagreement, "level" | "flaggedShare">>;
 
   const analyses = new Map<number, Analysis | null>();
   const overFlagged: Disagreement[] = [];
@@ -170,11 +173,9 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
     if (!analyses.has(mark.analysisId)) analyses.set(mark.analysisId, await loadAnalysis(db, mark.analysisId, settings));
     const analysis = analyses.get(mark.analysisId);
     if (!analysis) continue;
-    const level = analysis.sections
-      .filter((s) => s.startM <= mark.endM && s.endM >= mark.startM)
-      .reduce<Level>((worst, s) => (LEVELS.indexOf(s.level) > LEVELS.indexOf(worst) ? s.level : worst), "green");
-    if (mark.kind === "fine" && LEVELS.indexOf(level) >= LEVELS.indexOf("orange")) overFlagged.push({ ...mark, level });
-    if (mark.kind !== "fine" && level === "green") missed.push({ ...mark, level });
+    const { level, flaggedShare, disagreement } = judgeMark(analysis, mark.kind as MarkKind, mark.startM, mark.endM);
+    if (disagreement === "overFlagged") overFlagged.push({ ...mark, level, flaggedShare });
+    if (disagreement === "missed") missed.push({ ...mark, level, flaggedShare });
   }
   return { marks: marks.length, overFlagged, missed };
 }

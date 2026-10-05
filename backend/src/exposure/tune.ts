@@ -11,6 +11,8 @@ export interface MarkedStretch {
   kind: MarkKind;
   /** What the user put it down to, if they said: decides which score the mark is held against. */
   cause: Cause;
+  /** Long enough that "bad" means bad along its length, not at one spot. */
+  long: boolean;
   measurement: Measurement;
 }
 
@@ -35,13 +37,28 @@ const MARGIN = 5;
 const CHANGE_COST = 60;
 const PASSES = 3;
 
-/** How far a stretch's peak score is from what its mark says it should be, squared. */
-export function misfit(kind: MarkKind, peak: number, [mild, exposed, severe]: [number, number, number]): number {
-  const short = (target: number) => Math.max(0, target - peak) ** 2;
+/** How a stretch scores: its worst point, and its middle point when all are put in order. */
+export interface StretchScores {
+  peak: number;
+  typical: number;
+}
+
+/**
+ * How far a stretch's scores are from what its mark says they should be,
+ * squared. A long stretch marked bad is also held to being flagged along
+ * most of its length: its typical score should reach Mild.
+ */
+export function misfit(
+  kind: MarkKind,
+  { peak, typical }: StretchScores,
+  [mild, exposed, severe]: [number, number, number],
+  long = false,
+): number {
+  const short = (target: number, value = peak) => Math.max(0, target - value) ** 2;
   const over = (target: number) => Math.max(0, peak - target) ** 2;
   if (kind === "fine") return over(exposed - MARGIN);
   if (kind === "uneasy") return short(mild + MARGIN) + over(severe - MARGIN);
-  return short(exposed + MARGIN);
+  return short(exposed + MARGIN) + (long && kind === "bad" ? short(mild + MARGIN, typical) : 0);
 }
 
 function scaled(base: ScoreParams, multipliers: Record<string, number>): ScoreParams {
@@ -61,7 +78,7 @@ function scaled(base: ScoreParams, multipliers: Record<string, number>): ScorePa
 /**
  * Finds settings under which the marked stretches score as marked, moving
  * one setting at a time to whichever of a few steps fits best and repeating
- * until nothing improves. `peakOf` scores a stretch under given settings:
+ * until nothing improves. `scoresOf` scores a stretch under given settings:
  * the drop score or the view score alone where the mark names that as the
  * cause, else the overall score.
  * Returns the present settings unchanged when nothing fits better.
@@ -69,10 +86,10 @@ function scaled(base: ScoreParams, multipliers: Record<string, number>): ScorePa
 export function tune(
   stretches: MarkedStretch[],
   current: ScoreParams,
-  peakOf: (measurement: Measurement, params: ScoreParams, cause: Cause) => number,
+  scoresOf: (measurement: Measurement, params: ScoreParams, cause: Cause) => StretchScores,
 ): { params: ScoreParams; misfitBefore: number; misfitAfter: number } {
   const total = (params: ScoreParams) =>
-    stretches.reduce((sum, s) => sum + misfit(s.kind, peakOf(s.measurement, params, s.cause), params.thresholds), 0);
+    stretches.reduce((sum, s) => sum + misfit(s.kind, scoresOf(s.measurement, params, s.cause), params.thresholds, s.long), 0);
   const cost = (multipliers: Record<string, number>) =>
     CHANGE_COST * Object.values(multipliers).reduce((sum, m) => sum + Math.log(m) ** 2, 0);
 
