@@ -224,7 +224,13 @@
             <span class="dot" style:background={LEVEL_COLOR[hoveredLevel]}></span>{LEVEL_LABEL[hoveredLevel]} section
           </span>
         {/if}
-        <span>Score {Math.round(hovered.score)}</span>
+        <span>
+          Score {Math.round(hovered.score)}{#if hovered.rawScore != null && Math.round(hovered.rawScore) !== Math.round(hovered.score)}
+            {" "}(terrain alone {Math.round(hovered.rawScore)}){/if}
+        </span>
+        {#if hovered.context?.tunnel}<span>In a tunnel</span>{/if}
+        {#if hovered.context?.forest}<span>Wooded slope below</span>{/if}
+        {#if hovered.context?.wide}<span>Wide track</span>{/if}
         <span>Elevation {Math.round(hovered.metrics.elevation)} m</span>
         <span>Fall {Math.round(Math.max(hovered.metrics.fallLeft, hovered.metrics.fallRight))} m</span>
         <span>Side slope {Math.round(hovered.metrics.crossSlopeDeg)}°</span>

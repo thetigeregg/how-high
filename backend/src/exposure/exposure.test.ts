@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { buildContext, type TerrainContext } from "../context/context.js";
+import { lv95, type Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
-import type { Projection } from "../geo/projection.js";
 import type { Terrain } from "../terrain/grid.js";
 import { analyseTrack } from "./analyze.js";
 import { measureTrack } from "./metrics.js";
@@ -103,5 +104,95 @@ describe("findRuns", () => {
   it("never merges across missing terrain data", () => {
     const runs = findRuns(scores("...555?555..."), 5);
     expect(runs).toHaveLength(2);
+  });
+});
+
+describe("map context", () => {
+  const slope = ground((x) => 1000 - x);
+  const path = { tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false };
+  const context = (overrides: Partial<TerrainContext>): TerrainContext => ({
+    inForest: () => false,
+    pathAt: () => null,
+    cliffNear: () => false,
+    ...overrides,
+  });
+  const terrainOnly = analyseTrack(slope, northbound(0), identity).sections[0].maxScore;
+
+  it("lowers the score where the slope below the path is wooded, even if the path is not", () => {
+    // Trees only downhill (x > 5); the path at x = 0 runs along the forest edge.
+    const analysis = analyseTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x > 5 }) });
+    expect(analysis.sections[0].maxScore).toBe(Math.round(terrainOnly * 0.6));
+    expect(analysis.sections[0].rawMaxScore).toBe(terrainOnly);
+    expect(analysis.sections[0].context?.forest).toBe(true);
+  });
+
+  it("does not count trees on the uphill side", () => {
+    const analysis = analyseTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x < 5 }) });
+    expect(analysis.sections[0].maxScore).toBe(terrainOnly);
+  });
+
+  it("clears tunnels", () => {
+    const analysis = analyseTrack(slope, northbound(0), identity, {
+      context: context({ pathAt: () => ({ ...path, tunnel: true }) }),
+    });
+    expect(analysis.sections).toEqual([]);
+  });
+
+  it("keeps a bridge the map confirms and drops one it disproves", () => {
+    const gully = ground((_x, y) => (Math.abs(y) < 6 ? 985 : 1000));
+    const confirmed = analyseTrack(gully, northbound(0), identity, {
+      context: context({ pathAt: () => ({ ...path, bridge: true }) }),
+    });
+    expect(confirmed.sections[0].context?.bridge).toBe(true);
+    expect(confirmed.points[40].metrics!.bridgeGap).toBeCloseTo(15, 1);
+    const disproved = analyseTrack(gully, northbound(0), identity, { context: context({ pathAt: () => path }) });
+    expect(disproved.points[40].metrics!.bridgeGap).toBe(0);
+  });
+
+  it("reports the hardest mapped grade and aids along a section", () => {
+    const analysis = analyseTrack(slope, northbound(0), identity, {
+      context: context({ pathAt: (_x, y) => ({ ...path, sacGrade: y > 0 ? 4 : 2, aided: y > 100 }) }),
+    });
+    expect(analysis.sections[0].context).toMatchObject({ sacGrade: 4, aided: true, forest: false });
+  });
+});
+
+describe("buildContext", () => {
+  // 0.001° is about 111 m north-south and 76 m east-west at this latitude.
+  const square = (lat: number, lon: number, size: number) =>
+    [[0, 0], [0, size], [size, size], [size, 0], [0, 0]].map(([a, b]) => ({ lat: lat + a, lon: lon + b }));
+  const projection = lv95;
+  const [x0, y0] = projection.forward(8.0, 47.0);
+  const context = buildContext(
+    [
+      // A forest with a clearing, as a multipolygon whose outer ring arrives in two pieces.
+      {
+        type: "relation",
+        tags: { landuse: "forest" },
+        members: [
+          { type: "way", role: "outer", geometry: square(47.0, 8.0, 0.004).slice(0, 3) },
+          { type: "way", role: "outer", geometry: square(47.0, 8.0, 0.004).slice(2) },
+          { type: "way", role: "inner", geometry: square(47.001, 8.001, 0.001) },
+        ],
+      },
+      { type: "way", tags: { highway: "path", sac_scale: "alpine_hiking", bridge: "yes" }, geometry: [{ lat: 47.0, lon: 8.0 }, { lat: 47.004, lon: 8.0 }] },
+      { type: "way", tags: { highway: "track", tunnel: "no" }, geometry: [{ lat: 47.0, lon: 8.004 }, { lat: 47.004, lon: 8.004 }] },
+    ],
+    projection,
+    { minX: x0 - 200, minY: y0 - 200, maxX: x0 + 600, maxY: y0 + 700 },
+  );
+  const at = (lat: number, lon: number) => projection.forward(lon, lat);
+
+  it("fills multipolygon forests and leaves their clearings open", () => {
+    expect(context.inForest(...at(47.0005, 8.0005))).toBe(true);
+    expect(context.inForest(...at(47.0015, 8.0015))).toBe(false);
+    expect(context.inForest(...at(47.0035, 8.0035))).toBe(true);
+    expect(context.inForest(...at(46.9995, 8.0005))).toBe(false);
+  });
+
+  it("matches the nearest mapped path and reads its tags", () => {
+    expect(context.pathAt(...at(47.002, 8.00005))).toEqual({ tunnel: false, bridge: true, wide: false, sacGrade: 4, aided: false });
+    expect(context.pathAt(...at(47.002, 8.00395))).toMatchObject({ wide: true, tunnel: false });
+    expect(context.pathAt(...at(47.002, 8.002))).toBeNull();
   });
 });

@@ -6,6 +6,7 @@
     deleteMark,
     fetchAnalyses,
     fetchAnalysis,
+    reanalyse,
     updateAnalysis,
     uploadGpx,
   } from "./api.js";
@@ -120,6 +121,19 @@
     });
   }
 
+  let reanalysing = $state(false);
+
+  async function rerun() {
+    if (!detail) return;
+    const { id } = detail.summary;
+    reanalysing = true;
+    await run(async () => {
+      replaceSummary(await reanalyse(id));
+      if (selectedId === id) detail = await fetchAnalysis(id);
+    });
+    reanalysing = false;
+  }
+
   function remove() {
     if (!detail || !confirm(`Delete "${detail.summary.name}"?`)) return;
     const { id } = detail.summary;
@@ -164,6 +178,11 @@
             <span>{km(result.lengthM)}</span>
             <span>{result.terrain.source}</span>
           </p>
+          {#if result.mapContext !== true}
+            <p class="note">
+              Terrain only: forest, bridges and tunnels from OpenStreetMap were not applied. Re-analyse to try again.
+            </p>
+          {/if}
           {#if result.terrain.confidence === "low"}
             <p class="note">Coarse terrain data: steep mountainsides show up, small cliffs and ledges do not.</p>
           {/if}
@@ -175,6 +194,9 @@
               {r.label}
             </button>
           {/each}
+          <button type="button" class="spaced" disabled={reanalysing} onclick={rerun}>
+            {reanalysing ? "Re-analysing…" : "Re-analyse"}
+          </button>
           <button type="button" class="danger" onclick={remove}>Delete</button>
         </div>
       </header>
@@ -354,8 +376,14 @@
     background: var(--accent);
     color: #ffffff;
   }
-  button.danger {
+  button.spaced {
     margin-left: 0.6rem;
+  }
+  button:disabled {
+    cursor: progress;
+    color: var(--text-muted);
+  }
+  button.danger {
     color: var(--error);
   }
   .breakdown ul {

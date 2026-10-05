@@ -22,6 +22,7 @@ const { summary, terrain, sections } = analysis;
 
 console.log(`\n${analysis.name ?? file} — ${km(analysis.lengthM)} km`);
 console.log(`Terrain: ${terrain.source} (confidence: ${terrain.confidence})`);
+console.log(`Map context: ${analysis.mapContext ? "OpenStreetMap applied" : "unavailable, terrain only"}`);
 console.log(`Overall: ${summary.level.toUpperCase()}, peak score ${summary.maxScore}/100`);
 console.log(
   `Length by level: ${Object.entries(summary.lengthByLevelM)
@@ -40,12 +41,23 @@ if (sections.length === 0) {
       "km to": km(s.endM),
       "length m": s.lengthM,
       score: s.maxScore,
+      "terrain only": s.rawMaxScore,
       "at least": s.robustScore,
       "fall m": s.maxFallM,
       "drop in 30 m": s.maxDrop30M,
       "side slope °": s.maxCrossSlopeDeg,
       drop: `${s.side} (${s.dropTowards})`,
-      bridge: s.possibleBridge ? "maybe" : "",
+      bridge: s.context?.bridge ? "yes" : s.possibleBridge ? "maybe" : "",
+      context: [
+        s.context?.forest && "forest",
+        s.context?.tunnel && "tunnel",
+        s.context?.wideTrack && "wide track",
+        (s.context?.sacGrade ?? 0) >= 3 && `T${s.context?.sacGrade}`,
+        s.context?.aided && "ladder/rope",
+        s.context?.cliff && "cliff",
+      ]
+        .filter(Boolean)
+        .join(", "),
     })),
   );
   const worst = [...sections].sort((a, b) => b.maxScore - a.maxScore).slice(0, 5);

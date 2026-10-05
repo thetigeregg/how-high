@@ -164,6 +164,30 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
+  // Re-runs the analysis from the stored GPX, e.g. after the scoring model has
+  // changed. The hike's name, rating and marks are kept.
+  app.post("/api/analyses/:id/reanalyse", async (request, reply) => {
+    const id = idSchema.safeParse((request.params as { id: string }).id);
+    const file = id.success ? path.join(config.uploadsDir, `${id.data}.gpx`) : "";
+    if (!id.success || !getRow(id.data) || !fs.existsSync(file)) return reply.status(404).send({ error: "not found" });
+    const analysis = await analyseGpx(parseGpx(fs.readFileSync(file, "utf-8")));
+    app.db
+      .prepare(
+        `UPDATE analyses SET length_m = ?, level = ?, max_score = ?, terrain_source = ?, confidence = ?, result = ?
+         WHERE id = ?`,
+      )
+      .run(
+        analysis.lengthM,
+        analysis.summary.level,
+        analysis.summary.maxScore,
+        analysis.terrain.source,
+        analysis.terrain.confidence,
+        JSON.stringify(analysis),
+        id.data,
+      );
+    return serialize(getRow(id.data)!);
+  });
+
   app.patch("/api/analyses/:id", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });

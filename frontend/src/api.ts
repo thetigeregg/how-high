@@ -31,6 +31,10 @@ export function updateAnalysis(id: number, patch: { name?: string; rating?: Rati
   });
 }
 
+export function reanalyse(id: number): Promise<AnalysisSummary> {
+  return request(`/api/analyses/${id}/reanalyse`, { method: "POST" });
+}
+
 export function deleteAnalysis(id: number): Promise<void> {
   return request(`/api/analyses/${id}`, { method: "DELETE" });
 }

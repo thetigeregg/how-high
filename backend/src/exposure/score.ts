@@ -22,6 +22,10 @@ export interface ScoreParams {
   ridgeFactor: number;
   /** Score at which yellow, orange and red start. */
   thresholds: [number, number, number];
+  /** Multiplier where the ground below the path is wooded. */
+  forestFactor: number;
+  /** Multiplier on vehicle-width tracks and roads. */
+  wideTrackFactor: number;
 }
 
 export const DEFAULT_PARAMS: ScoreParams = {
@@ -35,13 +39,39 @@ export const DEFAULT_PARAMS: ScoreParams = {
   ridgeDropM: 8,
   ridgeFactor: 1.2,
   thresholds: [25, 50, 75],
+  forestFactor: 0.6,
+  wideTrackFactor: 0.85,
 };
 
 function ramp(value: number, [low, high]: [number, number]): number {
   return Math.min(1, Math.max(0, (value - low) / (high - low)));
 }
 
-/** Exposure of a single point, 0 (none) to 100. */
+/** What the map adds to the terrain at one point. */
+export interface PointContext {
+  /** The ground on the exposed side(s) of the path is wooded. */
+  forest: boolean;
+  /** Whether a mapped path was found here; the fields below are only meaningful if so. */
+  matched: boolean;
+  tunnel: boolean;
+  bridge: boolean;
+  wide: boolean;
+  sacGrade: number | null;
+  aided: boolean;
+  cliff: boolean;
+}
+
+/** Applies map context to a terrain-only score. Without context the score is unchanged. */
+export function adjustScore(raw: number, context: PointContext | null, params: ScoreParams = DEFAULT_PARAMS): number {
+  if (!context) return raw;
+  if (context.tunnel) return 0;
+  let score = raw;
+  if (context.forest) score *= params.forestFactor;
+  if (context.wide) score *= params.wideTrackFactor;
+  return score;
+}
+
+/** Exposure of a single point from terrain alone, 0 (none) to 100. */
 export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS): number {
   const fall = ramp(Math.max(m.fallLeft, m.fallRight), params.fallHeightM);
   const drop = Math.max(

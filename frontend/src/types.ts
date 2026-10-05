@@ -28,11 +28,25 @@ export interface PointMetrics {
   bridgeGap: number;
 }
 
+export interface PointContext {
+  forest: boolean;
+  matched: boolean;
+  tunnel: boolean;
+  bridge: boolean;
+  wide: boolean;
+  sacGrade: number | null;
+  aided: boolean;
+  cliff: boolean;
+}
+
 export interface AnalysedPoint {
   dist: number;
   lon: number;
   lat: number;
   score: number | null;
+  /** Terrain-only score, before forest, tunnels and track width are applied. */
+  rawScore?: number | null;
+  context?: PointContext | null;
   scoreLow: number | null;
   scoreHigh: number | null;
   level: Level | null;
@@ -45,6 +59,16 @@ export interface Section {
   endM: number;
   lengthM: number;
   maxScore: number;
+  rawMaxScore?: number;
+  context?: {
+    forest: boolean;
+    tunnel: boolean;
+    bridge: boolean;
+    wideTrack: boolean;
+    sacGrade: number | null;
+    aided: boolean;
+    cliff: boolean;
+  } | null;
   robustScore: number;
   maxFallM: number;
   maxDrop30M: number;
@@ -61,6 +85,8 @@ export interface Analysis {
   lengthM: number;
   spacingM: number;
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
+  /** Absent on hikes analysed before map context existed. */
+  mapContext?: boolean;
   summary: {
     maxScore: number;
     level: Level;

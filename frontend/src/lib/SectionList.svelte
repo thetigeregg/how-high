@@ -9,6 +9,22 @@
   }: { sections: Section[]; selected: Range | null; onselect: (index: number) => void } = $props();
 
   const km = (m: number) => (m / 1000).toFixed(2);
+
+  /** What the map adds about a stretch, as short labels. */
+  function contextLabels(s: Section): string[] {
+    const c = s.context;
+    const labels: string[] = [];
+    if (c?.bridge) labels.push("bridge");
+    else if (s.possibleBridge) labels.push("bridge?");
+    if (!c) return labels;
+    if (c.tunnel) labels.push("tunnel");
+    if (c.forest) labels.push("forest");
+    if (c.wideTrack) labels.push("wide track");
+    if (c.cliff) labels.push("mapped cliff");
+    if (c.sacGrade !== null && c.sacGrade >= 3) labels.push(`graded T${c.sacGrade}`);
+    if (c.aided) labels.push("ladder or rope");
+    return labels;
+  }
 </script>
 
 {#if sections.length === 0}
@@ -25,6 +41,7 @@
           <th class="num" title="Height lost down the fall line before the ground eases off">Fall</th>
           <th class="num" title="Steepness of the ground across the path">Side slope</th>
           <th>Drop</th>
+          <th title="From OpenStreetMap: forest and wide tracks lower the score, tunnels clear it">Context</th>
           <th>Look</th>
         </tr>
       </thead>
@@ -34,12 +51,16 @@
             <td><LevelBadge level={s.level} /></td>
             <td class="num">{km(s.startM)}</td>
             <td class="num">{s.lengthM} m</td>
-            <td class="num">{s.maxScore}<span class="faint"> (≥{s.robustScore})</span></td>
+            <td class="num">
+              {s.maxScore}<span class="faint"> (≥{s.robustScore})</span>
+              {#if s.rawMaxScore !== undefined && s.rawMaxScore !== s.maxScore}
+                <span class="faint" title="Score from terrain alone, before map context"> · terrain {s.rawMaxScore}</span>
+              {/if}
+            </td>
             <td class="num">{s.maxFallM} m</td>
             <td class="num">{s.maxCrossSlopeDeg}°</td>
-            <td>
-              {s.side === "both" ? "both sides" : `${s.side}, to ${s.dropTowards}`}{s.possibleBridge ? " · bridge?" : ""}
-            </td>
+            <td>{s.side === "both" ? "both sides" : `${s.side}, to ${s.dropTowards}`}</td>
+            <td>{contextLabels(s).join(", ")}</td>
             <td class="links">
               {#if s.links.swisstopo}
                 <a href={s.links.swisstopo} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>swisstopo</a>
