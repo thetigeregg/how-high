@@ -1,4 +1,4 @@
-import type { Analysis } from "./analyze.js";
+import type { Analysis, Profile as RouteProfile } from "./analyze.js";
 import type { ScoreParams } from "./score.js";
 
 /** The hardest values found anywhere along a stretch. */
@@ -20,6 +20,50 @@ export interface Reference {
   startM: number;
   endM: number;
   profile: Profile;
+  /** Hikes and rides are scored on different scales, so they are only compared with their own kind. */
+  routeProfile: RouteProfile;
+}
+
+/**
+ * Where a route not yet done stands against what the user has marked:
+ * - `beyond`: harder than the hardest stretch that bothered them
+ * - `difficult`: at least as hard as a stretch that bothered them
+ * - `unknown`: harder than anything marked fine, milder than anything that bothered them
+ * - `fine`: nothing harder than a stretch marked fine
+ */
+export interface Verdict {
+  tone: "beyond" | "difficult" | "unknown" | "fine";
+  /** The marked stretch the verdict is measured against. */
+  reference: Reference | null;
+  /** Length of this route at or above the reference's score, metres. */
+  lengthAtOrAboveM: number;
+}
+
+/**
+ * Judges a route by its flagged sections' "at least" scores, i.e. what holds
+ * up even if the line is a few metres off, so one noisy spot does not decide
+ * it. Returns null when there are no marks of the same kind to judge by.
+ */
+export function verdictFor(analysis: Analysis, references: Reference[]): Verdict | null {
+  const relevant = references.filter((r) => r.routeProfile === analysis.profile);
+  if (relevant.length === 0) return null;
+  const byScore = (a: Reference, b: Reference) => a.profile.score - b.profile.score;
+  const difficult = relevant.filter((r) => r.kind !== "fine").sort(byScore);
+  const fine = relevant.filter((r) => r.kind === "fine").sort(byScore);
+  const peak = Math.max(0, ...analysis.sections.map((s) => s.robustScore));
+  const lengthAtOrAbove = (score: number) =>
+    analysis.sections.filter((s) => s.robustScore >= score).reduce((sum, s) => sum + s.lengthM, 0);
+
+  const hardest = difficult[difficult.length - 1];
+  if (hardest && peak > hardest.profile.score) {
+    return { tone: "beyond", reference: hardest, lengthAtOrAboveM: lengthAtOrAbove(hardest.profile.score) };
+  }
+  // The hardest stretch that bothered them which this route still reaches.
+  const reached = difficult.filter((r) => r.profile.score <= peak).pop();
+  if (reached) return { tone: "difficult", reference: reached, lengthAtOrAboveM: lengthAtOrAbove(reached.profile.score) };
+  const easiestFineAbove = fine.find((r) => r.profile.score >= peak);
+  if (easiestFineAbove) return { tone: "fine", reference: easiestFineAbove, lengthAtOrAboveM: 0 };
+  return { tone: "unknown", reference: fine[fine.length - 1] ?? difficult[0] ?? null, lengthAtOrAboveM: 0 };
 }
 
 /** Sections whose scores differ by more than this are never called similar. */

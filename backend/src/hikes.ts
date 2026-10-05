@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { config } from "./config.js";
 import { MEASURE_VERSION, score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
 import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.js";
-import { mostSimilar, profileOf, type MarkKind, type Reference } from "./exposure/compare.js";
+import { mostSimilar, profileOf, verdictFor, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
 import { logger } from "./logger.js";
@@ -214,10 +214,17 @@ async function loadReferences(db: Database.Database, settings: Settings): Promis
     if (!analysis) continue;
     const endM = mark.kind === "turned_back" ? mark.startM + TURNED_BACK_LOOKAHEAD_M : mark.endM;
     const profile = profileOf(analysis, mark.startM, endM);
-    if (profile) built.push({ ...mark, endM, profile });
+    if (profile) built.push({ ...mark, endM, profile, routeProfile: analysis.profile });
   }
   references = built;
   return built;
+}
+
+/** For a hike or route not done yet: how it stands against the user's marks elsewhere. */
+export async function verdictOn(db: Database.Database, id: number, analysis: Analysis, settings: Settings) {
+  const others = (await loadReferences(db, settings)).filter((r) => r.analysisId !== id);
+  const verdict = verdictFor(analysis, others);
+  return verdict && { ...verdict, reference: verdict.reference && link(verdict.reference) };
 }
 
 const SEVERITY: MarkKind[] = ["fine", "uneasy", "bad", "turned_back"];

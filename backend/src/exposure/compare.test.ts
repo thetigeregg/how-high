@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
 import { analyseTrack } from "./analyze.js";
-import { distance, mostSimilar, profileOf, type Profile, type Reference } from "./compare.js";
+import { distance, mostSimilar, profileOf, verdictFor, type Profile, type Reference } from "./compare.js";
 import { DEFAULT_PARAMS } from "./score.js";
 
 const base: Profile = { score: 60, fallM: 20, drop100M: 50, crossSlopeDeg: 35, forest: false };
@@ -47,5 +47,41 @@ describe("comparing stretches", () => {
     expect(steep.score).toBeGreaterThan(75);
     expect(steep.fallM).toBeGreaterThan(50);
     expect(profileOf(analysis, 5000, 6000)).toBeNull();
+  });
+});
+
+describe("verdict on a route not done yet", () => {
+  // Only the fields the verdict reads matter here.
+  const route = (...sections: Array<[robustScore: number, lengthM: number]>) =>
+    ({ profile: "hike", sections: sections.map(([robustScore, lengthM]) => ({ robustScore, lengthM })) }) as never;
+  const marked = (kind: Reference["kind"], score: number): Reference => ({ ...reference(kind, { score }), routeProfile: "hike" });
+  const marks = [marked("fine", 38), marked("uneasy", 48), marked("bad", 73), marked("turned_back", 81)];
+
+  it("says when a route goes beyond the hardest stretch that bothered them", () => {
+    const verdict = verdictFor(route([91, 3000], [60, 500]), marks)!;
+    expect(verdict.tone).toBe("beyond");
+    expect(verdict.reference?.kind).toBe("turned_back");
+    expect(verdict.lengthAtOrAboveM).toBe(3000);
+  });
+
+  it("names the hardest bothersome stretch the route still reaches", () => {
+    const verdict = verdictFor(route([75, 200], [50, 100], [30, 400]), marks)!;
+    expect(verdict.tone).toBe("difficult");
+    expect(verdict.reference?.kind).toBe("bad");
+    expect(verdict.lengthAtOrAboveM).toBe(200);
+  });
+
+  it("calls a route fine when a stretch marked fine was at least as hard", () => {
+    expect(verdictFor(route([30, 100]), marks)).toMatchObject({ tone: "fine", reference: { kind: "fine" } });
+    expect(verdictFor(route(), marks)?.tone).toBe("fine");
+  });
+
+  it("admits when a route falls between what was fine and what was not", () => {
+    expect(verdictFor(route([44, 100]), marks)?.tone).toBe("unknown");
+  });
+
+  it("only judges by marks of the same kind of travel, and says nothing without any", () => {
+    expect(verdictFor(route([91, 100]), marks.map((m) => ({ ...m, routeProfile: "road" as const })))).toBeNull();
+    expect(verdictFor(route([91, 100]), [])).toBeNull();
   });
 });

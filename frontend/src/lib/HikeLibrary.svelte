@@ -30,6 +30,7 @@
           <span class="meta">
             <LevelBadge level={a.level} />
             <span>{km(a.lengthM)}</span>
+            {#if a.status === "planned"}<span class="planned">planned</span>{/if}
             {#if a.rating}<span>{ratingLabel[a.rating]}</span>{/if}
           </span>
         </button>
@@ -78,6 +79,11 @@
     gap: 0.25rem 0.75rem;
     color: var(--text-muted);
     font-size: 0.85rem;
+  }
+  .planned {
+    padding: 0 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
   }
   .empty {
     color: var(--text-muted);

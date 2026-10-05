@@ -7,6 +7,7 @@ import type {
   Rating,
   Settings,
   SettingsResponse,
+  Status,
 } from "./types.js";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -32,7 +33,10 @@ export function uploadGpx(file: File): Promise<AnalysisSummary> {
   return request("/api/analyses", { method: "POST", body });
 }
 
-export function updateAnalysis(id: number, patch: { name?: string; rating?: Rating | null }): Promise<AnalysisSummary> {
+export function updateAnalysis(
+  id: number,
+  patch: { name?: string; rating?: Rating | null; status?: Status },
+): Promise<AnalysisSummary> {
   return request(`/api/analyses/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

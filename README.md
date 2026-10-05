@@ -8,6 +8,11 @@ Upload a GPX file and you get the route coloured by exposure on a map, an
 elevation and score profile, and a table of flagged sections. Mark how
 stretches actually felt, and new hikes are compared against those marks.
 
+Each entry is either planned or done. A planned one gets a forecast: whether
+its worst stretch is within what you have found fine, reaches something that
+bothered you, or goes beyond anything you have marked. Rating or marking an
+entry sets it to done.
+
 Routes by car, bus or train can be added by pasting a shared Google Maps
 directions link (optional, needs a Google Maps API key).
 

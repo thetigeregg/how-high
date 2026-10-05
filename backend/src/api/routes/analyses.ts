@@ -13,6 +13,7 @@ import {
   invalidateReferences,
   hasSource,
   loadAnalysis,
+  verdictOn,
   remeasure,
   retryContextLater,
   routePath,
@@ -23,6 +24,7 @@ import { loadSettings } from "../../settings.js";
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   rating: z.enum(["fine", "uneasy", "bad"]).nullable().optional(),
+  status: z.enum(["planned", "done"]).optional(),
 });
 
 const markSchema = z
@@ -48,6 +50,7 @@ interface AnalysisRow {
   rating: string | null;
   kind: string;
   source_url: string | null;
+  status: string;
 }
 
 interface MarkRow {
@@ -71,7 +74,7 @@ function serializeMark(row: MarkRow) {
 }
 
 const SUMMARY_COLUMNS =
-  "id, name, created_at, length_m, level, max_score, terrain_source, confidence, rating, kind, source_url";
+  "id, name, created_at, length_m, level, max_score, terrain_source, confidence, rating, kind, source_url, status";
 
 function serialize(row: AnalysisRow) {
   return {
@@ -86,6 +89,7 @@ function serialize(row: AnalysisRow) {
     rating: row.rating,
     kind: row.kind,
     sourceUrl: row.source_url,
+    status: row.status,
   };
 }
 
@@ -176,7 +180,9 @@ export function registerAnalysesRoute(app: FastifyInstance) {
       .prepare("SELECT * FROM marks WHERE analysis_id = ? ORDER BY start_m, id")
       .all(row.id) as MarkRow[];
     const sections = await annotateSections(app.db, id.data, analysis, settings);
-    return { summary: serialize(row), marks: marks.map(serializeMark), result: { ...analysis, sections } };
+    // A verdict is a forecast, so it is only offered while the route is still ahead.
+    const verdict = row.status === "planned" ? await verdictOn(app.db, id.data, analysis, settings) : null;
+    return { summary: serialize(row), marks: marks.map(serializeMark), verdict, result: { ...analysis, sections } };
   });
 
   app.post("/api/analyses/:id/marks", async (request, reply) => {
@@ -192,6 +198,8 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const { lastInsertRowid } = app.db
       .prepare("INSERT INTO marks (analysis_id, kind, start_m, end_m, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(analysis.id, mark.kind, mark.startM, mark.endM, mark.note || null, new Date().toISOString());
+    // Saying how a stretch felt means having been there.
+    app.db.prepare("UPDATE analyses SET status = 'done' WHERE id = ?").run(analysis.id);
     invalidateReferences();
     const row = app.db.prepare("SELECT * FROM marks WHERE id = ?").get(lastInsertRowid) as MarkRow;
     return reply.status(201).send(serializeMark(row));
@@ -236,6 +244,10 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     }
     if (patch.rating !== undefined) {
       app.db.prepare("UPDATE analyses SET rating = ? WHERE id = ?").run(patch.rating, id.data);
+      if (patch.rating !== null) app.db.prepare("UPDATE analyses SET status = 'done' WHERE id = ?").run(id.data);
+    }
+    if (patch.status !== undefined) {
+      app.db.prepare("UPDATE analyses SET status = ? WHERE id = ?").run(patch.status, id.data);
     }
     return serialize(getRow(id.data)!);
   });

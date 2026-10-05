@@ -14,6 +14,18 @@ export interface AnalysisSummary {
   /** 'hike' from a GPX file, 'route' from a Google Maps link. */
   kind: "hike" | "route";
   sourceUrl: string | null;
+  /** Whether it has been done, or is only being considered. */
+  status: Status;
+}
+
+export type Status = "planned" | "done";
+
+/** How something not done yet stands against your marks elsewhere. */
+export interface Verdict {
+  tone: "beyond" | "difficult" | "unknown" | "fine";
+  reference: ReferenceLink | null;
+  /** Length at or above the reference's score, metres. */
+  lengthAtOrAboveM: number;
 }
 
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
@@ -153,6 +165,8 @@ export interface Range {
 export interface AnalysisDetail {
   summary: AnalysisSummary;
   marks: Mark[];
+  /** Only present while the entry is planned and there are marks to judge by. */
+  verdict: Verdict | null;
   result: Analysis;
 }
 

@@ -20,7 +20,7 @@
   import SectionList from "./lib/SectionList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import Upload from "./lib/Upload.svelte";
-  import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating } from "./types.js";
+  import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating, Status, Verdict } from "./types.js";
 
   let analyses = $state<AnalysisSummary[]>([]);
   let detail = $state<AnalysisDetail | null>(null);
@@ -97,10 +97,53 @@
     if (detail?.summary.id === updated.id) detail = { ...detail, summary: updated };
   }
 
+  // Rating or marking something implies it has been done, and done entries
+  // carry no forecast, so the whole entry is fetched again after either.
+  async function refresh(id: number) {
+    const loaded = await fetchAnalysis(id);
+    replaceSummary(loaded.summary);
+    if (selectedId === id) detail = loaded;
+  }
+
   function rate(rating: Rating) {
     if (!detail) return;
     const { id, rating: current } = detail.summary;
-    void run(async () => replaceSummary(await updateAnalysis(id, { rating: current === rating ? null : rating })));
+    void run(async () => {
+      await updateAnalysis(id, { rating: current === rating ? null : rating });
+      await refresh(id);
+    });
+  }
+
+  function setStatus(status: Status) {
+    if (!detail || detail.summary.status === status) return;
+    const { id } = detail.summary;
+    void run(async () => {
+      await updateAnalysis(id, { status });
+      await refresh(id);
+    });
+  }
+
+  const VERDICT_WORD: Record<MarkKind, string> = {
+    fine: "you marked fine",
+    uneasy: "you marked uneasy",
+    bad: "you marked bad",
+    turned_back: "is where you turned back",
+  };
+  const VERDICT_TITLE: Record<Verdict["tone"], string> = {
+    beyond: "Harder than anything you have marked",
+    difficult: "Likely to be difficult",
+    unknown: "Between what was fine and what was not",
+    fine: "Within what you have found fine",
+  };
+
+  function verdictText(verdict: Verdict): string {
+    const ref = verdict.reference;
+    const where = ref ? `km ${(ref.startM / 1000).toFixed(2)} of ${ref.name || "an untitled hike"}, which ${VERDICT_WORD[ref.kind]}` : "";
+    const length = `${km(verdict.lengthAtOrAboveM)} of this is at or above that level`;
+    if (verdict.tone === "beyond") return `Its worst stretch scores above ${where}. ${length}.`;
+    if (verdict.tone === "difficult") return `It reaches the level of ${where}. ${length}.`;
+    if (verdict.tone === "fine") return `Nothing here scores above ${where}.`;
+    return "It scores above everything you have marked fine, but below everything that bothered you. There is nothing to compare it with yet.";
   }
 
   const markKinds: Array<{ value: MarkKind; label: string }> = [
@@ -126,10 +169,8 @@
     // Turning back happens at one place: the start of whatever is selected.
     const range = kind === "turned_back" ? { startM: selection.startM, endM: selection.startM } : selection;
     void run(async () => {
-      const mark = await createMark(id, kind, range);
-      if (detail?.summary.id === id) {
-        detail = { ...detail, marks: [...detail.marks, mark].sort((a, b) => a.startM - b.startM) };
-      }
+      await createMark(id, kind, range);
+      await refresh(id);
       selection = null;
     });
   }
@@ -308,6 +349,13 @@
           {/if}
         </div>
         <div class="actions">
+          <div class="status" role="group" aria-label="Whether you have done this">
+            {#each [{ value: "planned", label: "Planned" }, { value: "done", label: "Done" }] as const as s}
+              <button type="button" class:active={detail.summary.status === s.value} onclick={() => setStatus(s.value)}>
+                {s.label}
+              </button>
+            {/each}
+          </div>
           <span class="actions-label">How was it?</span>
           {#each ratings as r}
             <button type="button" class:active={detail.summary.rating === r.value} onclick={() => rate(r.value)}>
@@ -320,6 +368,31 @@
           <button type="button" class="danger" onclick={remove}>Delete</button>
         </div>
       </header>
+
+      {#if detail.verdict}
+        {@const verdict = detail.verdict}
+        <div class="verdict {verdict.tone}">
+          <strong>{VERDICT_TITLE[verdict.tone]}</strong>
+          <span>
+            {verdictText(verdict)}
+            {#if verdict.reference}
+              {@const ref = verdict.reference}
+              <button type="button" class="quiet" onclick={() => select(ref.analysisId, { startM: ref.startM, endM: ref.endM })}>
+                Show that stretch
+              </button>
+            {/if}
+          </span>
+          <span class="basis">
+            Judged by the score that holds even if the line is a few metres off, against stretches you have marked on
+            other {detail.summary.kind === "route" ? "routes" : "hikes"}.
+          </span>
+        </div>
+      {:else if detail.summary.status === "planned"}
+        <p class="note">
+          No forecast yet: there are no marked {detail.summary.kind === "route" ? "routes" : "hikes"} to judge this
+          against. Mark how stretches felt on ones you have done.
+        </p>
+      {/if}
 
       <div class="breakdown">
         <div class="bar" aria-hidden="true">
@@ -529,6 +602,49 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
+  }
+  .status {
+    display: inline-flex;
+    margin-right: 0.6rem;
+  }
+  .status button:first-child {
+    border-radius: 999px 0 0 999px;
+    border-right: none;
+  }
+  .status button:last-child {
+    border-radius: 0 999px 999px 0;
+  }
+  .verdict {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+  }
+  /* The edge colour repeats what the title says in words. */
+  .verdict.beyond {
+    border-left-color: #d03b3b;
+  }
+  .verdict.difficult {
+    border-left-color: #ec835a;
+  }
+  .verdict.unknown {
+    border-left-color: var(--text-faint);
+  }
+  .verdict.fine {
+    border-left-color: #0ca30c;
+  }
+  .verdict .basis {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+  .verdict button {
+    padding: 0;
+    text-decoration: underline;
+    color: var(--accent);
   }
   .actions-label {
     color: var(--text-muted);
