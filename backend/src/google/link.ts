@@ -56,10 +56,12 @@ export function parseDirectionsUrl(input: string): Directions {
   if (dir < 0) throw new Error("That link is not a route. Share the directions themselves, not a single place.");
   const names: string[] = [];
   let blob = "";
+  // Stops come first; from the map position ("@…") on, the segments are view options and data.
+  let pastStops = false;
   for (const segment of segments.slice(dir + 1)) {
-    if (segment.startsWith("@")) continue;
-    if (segment.startsWith("data=")) blob = segment;
-    else names.push(decodeURIComponent(segment.replace(/\+/g, " ")));
+    if (segment.startsWith("@")) pastStops = true;
+    else if (segment.startsWith("data=")) blob = segment;
+    else if (!pastStops) names.push(decodeURIComponent(segment.replace(/\+/g, " ")));
   }
   while (names.length > 0 && names[names.length - 1] === "") names.pop();
   if (names.length < 2) throw new Error("That link has no start or no destination");

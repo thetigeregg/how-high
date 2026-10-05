@@ -31,8 +31,9 @@ export interface TerrainContext {
 export interface OsmElement {
   type: "way" | "relation";
   tags?: Record<string, string>;
-  geometry?: Array<{ lat: number; lon: number }>;
-  members?: Array<{ type: string; role: string; geometry?: Array<{ lat: number; lon: number }> }>;
+  // Overpass leaves null gaps where a node lies outside what it returned.
+  geometry?: Array<{ lat: number; lon: number } | null>;
+  members?: Array<{ type: string; role: string; geometry?: Array<{ lat: number; lon: number } | null> }>;
 }
 
 type Line = Array<[number, number]>;
@@ -176,8 +177,8 @@ export function buildContext(
   projection: Projection,
   bounds: { minX: number; minY: number; maxX: number; maxY: number },
 ): TerrainContext {
-  const project = (geometry: Array<{ lat: number; lon: number }>): Line =>
-    geometry.map(({ lat, lon }) => projection.forward(lon, lat));
+  const project = (geometry: Array<{ lat: number; lon: number } | null>): Line =>
+    geometry.flatMap((node) => (node ? [projection.forward(node.lon, node.lat)] : []));
 
   const forest = new Mask(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
   const paths = new SegmentIndex<PathInfo>();

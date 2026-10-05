@@ -14,6 +14,18 @@ describe("parseDirectionsUrl", () => {
     ]);
   });
 
+  it("ignores view options between the stops and the data", () => {
+    // What the share button on the phone app produces, after its short link is followed.
+    const directions = parseDirectionsUrl(
+      "https://www.google.com/maps/dir/Z%C3%BCrich+HB,+Bahnhofplatz,+8001+Z%C3%BCrich/St+Moritz,+7500/@46.9303859,7.9900519,8z/am=t/data=!4m14!4m13!1m5!1m1!1s0x47900a08cc0e6e41:0xf5c698b65f8c52a7!2m2!1d8.5403767!2d47.3780356!1m5!1m1!1s0x478482076dc01a7b:0x279fdbbd3ec97825!2m2!1d9.8355079!2d46.4907973!3e3?entry=tts",
+    );
+    expect(directions.mode).toBe("TRANSIT");
+    expect(directions.stops).toEqual([
+      { label: "Zürich HB, Bahnhofplatz, 8001 Zürich", latLng: [47.3780356, 8.5403767] },
+      { label: "St Moritz, 7500", latLng: [46.4907973, 9.8355079] },
+    ]);
+  });
+
   it("falls back to names when the link carries no coordinates, and to driving", () => {
     const directions = parseDirectionsUrl("https://www.google.ch/maps/dir/Thusis/46.6741,9.6403/Tiefencastel/");
     expect(directions.mode).toBe("DRIVE");

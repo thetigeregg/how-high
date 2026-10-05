@@ -96,6 +96,13 @@ export interface Analysis {
   points: AnalysedPoint[];
 }
 
+/**
+ * Raised whenever measuring itself changes (not just the settings), so stored
+ * measurements taken the old way are taken again.
+ * 2: forests mapped as multipolygons are no longer missed.
+ */
+export const MEASURE_VERSION = 2;
+
 /** How a stretch is travelled. Ferries are carried along but never scored. */
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
 /** Which family of settings a route is scored with. */
@@ -133,6 +140,8 @@ export interface Measurement {
   mapContext: boolean;
   /** The measurement settings this was taken with. */
   params: MeasureParams;
+  /** `MEASURE_VERSION` at the time; absent on the oldest measurements. */
+  version?: number;
   /** Absent on hikes measured before routes existed; read as a single hike leg. */
   profile?: Profile;
   legs?: Leg[];
@@ -275,6 +284,7 @@ export function measure(
     swiss: options.swiss ?? false,
     mapContext: options.context !== undefined,
     params,
+    version: MEASURE_VERSION,
     profile: "hike",
     legs: [{ mode: "hike", label: "Hike", startM: 0, endM: track[track.length - 1].dist }],
     points: measurePoints(terrain, track, projection, options.context, params, () => "foot"),

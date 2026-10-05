@@ -5,12 +5,13 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import type { OsmElement } from "./context.js";
 
-// Public Overpass instances, tried in order. They are rate-limited and
-// occasionally down, hence the fallback and the on-disk cache.
-const ENDPOINTS = [
+// Public Overpass instances, tried in order. The worldwide ones are
+// rate-limited and often overloaded, hence the fallbacks and the on-disk
+// cache. The Swiss one is fast but only holds Switzerland.
+const SWISS_ENDPOINT = "https://overpass.osm.ch/api/interpreter";
+const WORLD_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 // The main instance rejects requests without an identifying user agent.
 const USER_AGENT = "how-high/0.1 (self-hosted hike exposure analysis)";
@@ -42,8 +43,15 @@ function query(line: Array<[number, number]>, bbox: [number, number, number, num
   relation[landuse=forest](${box});
   relation[natural=wood](${box});
 );
-out tags geom;`;
+out geom;`;
 }
+
+/**
+ * Whether an answer covers the line at all. Any line worth asking about runs
+ * on or beside some mapped way, so an answer without one means the server
+ * does not hold this area (the Swiss instance, asked about ground abroad).
+ */
+const coversLine = (elements: OsmElement[]) => elements.some((e) => e.type === "way" && (e.tags?.highway || e.tags?.railway));
 
 async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): Promise<OsmElement[]> {
   try {
@@ -54,7 +62,9 @@ async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): 
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return ((await res.json()) as { elements: OsmElement[] }).elements;
+    const { elements } = (await res.json()) as { elements: OsmElement[] };
+    if (endpoint === SWISS_ENDPOINT && !coversLine(elements)) throw new Error("area not covered");
+    return elements;
   } catch (err) {
     logger.warn({ endpoint, err: (err as Error).message }, "Overpass request failed");
     throw err;
@@ -66,15 +76,18 @@ async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): 
  * the bounding box (west, south, east, north) around it. Throws when no
  * Overpass instance answers; callers treat context as optional.
  *
- * Normally the instances are tried one after another with a generous
- * timeout. In quick mode all are asked at once and the first answer within a
+ * `swiss` says the line lies in or near Switzerland, where the Swiss
+ * instance is tried first. Normally the instances are tried one after another
+ * with a generous timeout. In quick mode all are asked at once and the first answer within a
  * few seconds wins, so an upload is never held up for long.
  */
 export async function fetchOsm(
   line: Array<[number, number]>,
   bbox: [number, number, number, number],
+  swiss: boolean,
   quick = false,
 ): Promise<OsmElement[]> {
+  const ENDPOINTS = swiss ? [SWISS_ENDPOINT, ...WORLD_ENDPOINTS] : WORLD_ENDPOINTS;
   const data = query(line, bbox);
   const file = path.join(cacheDir, `${createHash("sha1").update(data).digest("hex")}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf-8")) as OsmElement[];

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { config } from "./config.js";
-import { score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
+import { MEASURE_VERSION, score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
 import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.js";
 import { mostSimilar, profileOf, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
@@ -107,8 +107,9 @@ export async function loadMeasurement(db: Database.Database, id: number, setting
   const row = db.prepare("SELECT result FROM analyses WHERE id = ?").get(id) as { result: string } | undefined;
   if (!row) return null;
   const stored = JSON.parse(row.result) as Measurement;
-  if (sameParams(stored.params, settings.measure) || !hasSource(id)) return stored;
-  logger.info({ id }, "measuring hike again for changed settings");
+  const current = sameParams(stored.params, settings.measure) && stored.version === MEASURE_VERSION;
+  if (current || !hasSource(id)) return stored;
+  logger.info({ id }, "measuring again: settings or the way of measuring changed");
   return remeasure(db, id, settings);
 }
 

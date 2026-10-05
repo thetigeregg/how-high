@@ -7,7 +7,7 @@ import { logger } from "../logger.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
 import { loadTerrariumTerrain } from "../terrain/terrarium.js";
-import { measurePoints, TRAVEL_KIND, type Leg, type LegMode, type MeasuredPoint, type Measurement, type Profile } from "./analyze.js";
+import { MEASURE_VERSION, measurePoints, TRAVEL_KIND, type Leg, type LegMode, type MeasuredPoint, type Measurement, type Profile } from "./analyze.js";
 import { DEFAULT_MEASURE, type MeasureParams, type PointMetrics } from "./metrics.js";
 import type { NoGoKind, PointContext } from "./score.js";
 
@@ -57,6 +57,7 @@ async function loadContext(
   track: TrackPoint[],
   projection: Projection,
   spacing: number,
+  swiss: boolean,
   quick: boolean,
 ): Promise<TerrainContext | undefined> {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -83,7 +84,7 @@ async function loadContext(
   const step = Math.max(1, Math.round(OSM_LINE_STEP_M / spacing));
   const line = track.filter((_, i) => i % step === 0 || i === track.length - 1).map((p) => projection.inverse(p.x, p.y));
   try {
-    const elements = await fetchOsm(line, [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)], quick);
+    const elements = await fetchOsm(line, [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)], swiss, quick);
     return buildContext(elements, projection, bounds);
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "measuring without map context");
@@ -173,7 +174,9 @@ export async function measureSource(
       ? await loadSwissTerrain(xy, TERRAIN_BUFFER_M)
       : await loadTerrariumTerrain(xy, projection, TERRAIN_BUFFER_M);
     terrainInfo ??= { source: terrain.source, cellSize: terrain.cellSize, confidence: swiss ? "high" : "low" };
-    const context = await loadContext(piece, projection, spacing, quickContext);
+    // In quick mode one failure is taken as the servers being down: the rest
+    // of the route is not held up asking again, and the background retry fills it in.
+    const context: TerrainContext | undefined = quickContext && !mapContext ? undefined : await loadContext(piece, projection, spacing, swiss, quickContext);
     mapContext &&= context !== undefined;
     const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[source.legs[legOf[from + i]].mode]);
     points.push(...measured.slice(start - from, end - from));
@@ -199,6 +202,7 @@ export async function measureSource(
     swiss,
     mapContext,
     params,
+    version: MEASURE_VERSION,
     profile: source.profile,
     legs,
     points,

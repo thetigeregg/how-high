@@ -3,7 +3,7 @@ import type { LegMode } from "../exposure/analyze.js";
 import type { RouteSource, SourceLeg } from "../exposure/pipeline.js";
 import type { NoGoKind } from "../exposure/score.js";
 import type { GpxPoint } from "../gpx/parse.js";
-import type { Directions, Stop } from "./link.js";
+import type { Directions, Stop, TravelMode } from "./link.js";
 
 const ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes";
 const FIELDS = [
@@ -95,23 +95,17 @@ export function transitLegs(steps: ApiStep[]): SourceLeg[] {
   return legs;
 }
 
-/**
- * Asks Google for the route a link describes. Google returns its current
- * best route, which can differ from the one shown when the link was shared
- * (traffic, timetable, or an alternative the sharer picked).
- */
-export async function fetchRoute(directions: Directions, url: string): Promise<RouteSource> {
-  if (!config.googleMapsApiKey) throw new Error("Google Maps links are not set up (no API key)");
-  const { stops, mode } = directions;
-  if (mode === "TRANSIT" && stops.length > 2) {
-    throw new Error("Public-transport routes with stops in between are not supported; share each part separately.");
-  }
+interface ApiRoute {
+  polyline?: { encodedPolyline?: string };
+  legs?: Array<{ steps?: ApiStep[] }>;
+}
 
+async function computeRoute(stops: Stop[], mode: TravelMode): Promise<ApiRoute> {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Goog-Api-Key": config.googleMapsApiKey,
+      "X-Goog-Api-Key": config.googleMapsApiKey!,
       "X-Goog-FieldMask": FIELDS,
     },
     body: JSON.stringify({
@@ -123,20 +117,36 @@ export async function fetchRoute(directions: Directions, url: string): Promise<R
     }),
     signal: AbortSignal.timeout(30_000),
   });
-  const body = (await res.json()) as {
-    routes?: Array<{ polyline?: { encodedPolyline?: string }; legs?: Array<{ steps?: ApiStep[] }> }>;
-    error?: { message?: string };
-  };
+  const body = (await res.json()) as { routes?: ApiRoute[]; error?: { message?: string } };
   if (!res.ok) throw new Error(`Google could not compute the route: ${body.error?.message ?? `HTTP ${res.status}`}`);
   const route = body.routes?.[0];
-  if (!route) throw new Error("Google found no route between those places");
+  if (!route) throw new Error(`Google found no route from ${short(stops[0].label)} to ${short(stops[stops.length - 1].label)}`);
+  return route;
+}
 
+/**
+ * Asks Google for the route a link describes. Google returns its current
+ * best route, which can differ from the one shown when the link was shared
+ * (traffic, timetable, or an alternative the sharer picked).
+ */
+export async function fetchRoute(directions: Directions, url: string): Promise<RouteSource> {
+  if (!config.googleMapsApiKey) throw new Error("Google Maps links are not set up (no API key)");
+  const { stops, mode } = directions;
   const name = `${short(stops[0].label)} to ${short(stops[stops.length - 1].label)}`;
+
   if (mode === "TRANSIT") {
-    const legs = transitLegs((route.legs ?? []).flatMap((leg) => leg.steps ?? []));
+    // Google does not take stops in between for public transport, so each
+    // stretch from one stop to the next is asked for on its own and joined.
+    const legs: SourceLeg[] = [];
+    for (let i = 0; i + 1 < stops.length; i++) {
+      const route = await computeRoute([stops[i], stops[i + 1]], mode);
+      legs.push(...transitLegs((route.legs ?? []).flatMap((leg) => leg.steps ?? [])));
+    }
     if (legs.length === 0) throw new Error("Google returned a route without any line to follow");
     return { name: `${name} (public transport)`, profile: "road", url, legs };
   }
+
+  const route = await computeRoute(stops, mode);
   const points = decodePolyline(route.polyline?.encodedPolyline ?? "");
   if (points.length < 2) throw new Error("Google returned a route without any line to follow");
   if (mode === "WALK") {

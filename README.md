@@ -62,7 +62,11 @@ travelled, not which line it follows. The app asks Google's Routes API for
 the route and scores that, so it is Google's current suggestion and can
 differ from what was on screen when the link was shared. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
-or road on the map.
+or road on the map. Google does not accept stops in between for public
+transport, so such a route is fetched stop to stop and joined.
+
+A long route downloads terrain for its whole length the first time, about
+1 MB per km in Switzerland, which can take several minutes.
 
 Roads and railways have their own set of scoring knobs (**Settings**, "Car,
 bus and train"), which start out more lenient than the hiking ones: you are
@@ -94,10 +98,11 @@ check for yourself.
 - **Terrain elsewhere**: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/),
   roughly 10 to 30 m. Good for steep mountainsides, blind to small cliffs;
   results are labelled as low confidence.
-- **Paths, forest, bridges, tunnels**: © OpenStreetMap contributors, fetched
-  through public Overpass servers. These are sometimes slow or down; a hike is
-  then scored on terrain alone and completed in the background once the data
-  can be fetched.
+- **Paths, roads, railways, forest, bridges, tunnels**: © OpenStreetMap
+  contributors, fetched through public Overpass servers: the Swiss one
+  (overpass.osm.ch) inside Switzerland, the worldwide ones otherwise. The
+  worldwide servers are often slow or down; a route is then scored on terrain
+  alone and completed in the background once the data can be fetched.
 - **Base map**: swisstopo national map inside Switzerland, OpenStreetMap
   elsewhere.
 
