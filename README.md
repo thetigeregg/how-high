@@ -8,6 +8,9 @@ Upload a GPX file and you get the route coloured by exposure on a map, an
 elevation and score profile, and a table of flagged sections. Mark how
 stretches actually felt, and new hikes are compared against those marks.
 
+Routes by car, bus or train can be added by pasting a shared Google Maps
+directions link (optional, needs a Google Maps API key).
+
 ## Running it
 
 ```sh
@@ -23,6 +26,7 @@ Then open http://localhost:8421.
 | `DATA_PATH` | `./data` | Where the database, uploaded GPX files and terrain cache live |
 | `PUID` / `PGID` | `1000` | User and group the backend runs as; match the owner of `DATA_PATH` |
 | `TZ` | `Europe/Zurich` | Container timezone |
+| `GOOGLE_MAPS_API_KEY` | unset | Enables routes from Google Maps links; see below |
 
 Only the frontend publishes a port; it serves the page and proxies `/api` to
 the backend on an internal network. Locally, `docker-compose.override.yml`
@@ -51,9 +55,32 @@ Every number involved is adjustable under **Settings**, with an explanation
 of each. Hikes are stored as measurements and scored on demand, so a change
 applies to all hikes at once.
 
+### Routes from Google Maps links
+
+A shared link only says where the route starts and ends and how it is
+travelled, not which line it follows. The app asks Google's Routes API for
+the route and scores that, so it is Google's current suggestion and can
+differ from what was on screen when the link was shared. Public-transport
+routes are split into legs (train, bus, walk), each matched to the railway
+or road on the map.
+
+Roads and railways have their own set of scoring knobs (**Settings**, "Car,
+bus and train"), which start out more lenient than the hiking ones: you are
+inside a vehicle, usually behind a guardrail. Tunnels score nothing, and on a
+mapped bridge the height above the ground is measured along its whole
+length. Cable cars, gondolas, chairlifts, funiculars and rack railways are
+rated Severe outright; each can be switched off in Settings. Rack railways
+are only recognised where OpenStreetMap marks the rack rail.
+
+To enable links, create a Google Cloud project with billing, enable the
+**Routes API**, create an API key restricted to that API, and set
+`GOOGLE_MAPS_API_KEY`. Without it the link field is hidden and everything
+else works. Each added route is one API request.
+
 ### What it cannot see
 
-Path width, railings, chains and cables are not in any of the data. Forest
+Path width, railings, guardrails, chains and cables are not in any of the
+data, nor which side of a train or bus you sit on. Forest
 outlines are coarse, and trees near the treeline hide little. GPS lines can
 be several metres off, which is why each section also shows an "at least"
 score for the most favourable sideways shift. Treat the result as a warning
@@ -94,10 +121,12 @@ cd frontend && npm install && npm run dev    # page on :5173, proxies /api to :3
 
 ```
 backend/src/
-  exposure/   measuring terrain, scoring, sectioning, comparing stretches
+  exposure/   measuring terrain, scoring, sectioning, comparing stretches;
+              pipeline.ts runs it over a whole route in pieces
   terrain/    swissALTI3D and global terrain loading
   context/    OpenStreetMap fetch and lookups
   gpx/        GPX parsing and resampling
+  google/     Google Maps link parsing and route fetching
   api/        HTTP routes
   hikes.ts    stored hikes: measure, score on demand, marks, retries
   settings.ts every adjustable knob, with bounds

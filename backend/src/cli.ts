@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { measureGpx, score } from "./exposure/analyze.js";
+import { score } from "./exposure/analyze.js";
+import { gpxSource, measureSource } from "./exposure/pipeline.js";
 import { parseGpx } from "./gpx/parse.js";
 
 // Tuning tool: analyse one GPX file with the default settings and print the flagged sections.
@@ -17,7 +18,7 @@ if (!file || (jsonFlag >= 0 && !jsonOut)) {
 
 const km = (m: number) => (m / 1000).toFixed(2);
 
-const analysis = score(await measureGpx(parseGpx(fs.readFileSync(file, "utf-8"))));
+const analysis = score(await measureSource(gpxSource(parseGpx(fs.readFileSync(file, "utf-8")))));
 const { summary, terrain, sections } = analysis;
 
 console.log(`\n${analysis.name ?? file} — ${km(analysis.lengthM)} km`);

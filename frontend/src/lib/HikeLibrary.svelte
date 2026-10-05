@@ -13,7 +13,7 @@
 </script>
 
 {#if analyses.length === 0}
-  <p class="empty">No hikes yet.</p>
+  <p class="empty">Nothing here yet.</p>
 {:else}
   <ul>
     {#each analyses as a (a.id)}
@@ -22,7 +22,7 @@
           <span class="name">{a.name}</span>
           <span class="meta">
             <LevelBadge level={a.level} />
-            <span>{km(a.lengthM)}</span>
+            <span>{a.kind === "route" ? "Route, " : ""}{km(a.lengthM)}</span>
             {#if a.rating}<span>{ratingLabel[a.rating]}</span>{/if}
           </span>
         </button>

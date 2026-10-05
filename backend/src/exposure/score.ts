@@ -34,6 +34,29 @@ export interface ScoreParams {
   minLengthM: number;
 }
 
+/**
+ * Starting point for roads and public transport. Seen from inside a vehicle
+ * and behind a guardrail, it takes a bigger drop to matter, tall bridges
+ * count more, and how steep the road climbs does not count at all.
+ */
+export const DEFAULT_ROAD_PARAMS: ScoreParams = {
+  fallHeightM: [10, 100],
+  drop10M: [8, 30],
+  drop30M: [15, 60],
+  drop100M: [40, 120],
+  crossSlopeDeg: [30, 50],
+  trackGradeDeg: [80, 89],
+  bridgeGapM: [10, 60],
+  ridgeDropM: 15,
+  ridgeFactor: 1.2,
+  thresholds: [25, 50, 75],
+  forestFactor: 0.8,
+  wideTrackFactor: 1,
+  dropWeight: 0.75,
+  mergeGapM: 100,
+  minLengthM: 30,
+};
+
 export const DEFAULT_PARAMS: ScoreParams = {
   fallHeightM: [3, 50],
   drop10M: [4, 16],
@@ -68,7 +91,12 @@ export interface PointContext {
   sacGrade: number | null;
   aided: boolean;
   cliff: boolean;
+  /** Set where the stretch is travelled by a kind of transport that can be a no-go outright. */
+  noGo: NoGoKind | null;
 }
+
+export type NoGoKind = "cableCars" | "funiculars" | "rackRailways";
+export type NoGoSettings = Record<NoGoKind, boolean>;
 
 /** Applies map context to a terrain-only score. Without context the score is unchanged. */
 export function adjustScore(raw: number, context: PointContext | null, params: ScoreParams = DEFAULT_PARAMS): number {

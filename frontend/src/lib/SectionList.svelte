@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MarkKind, Range, Section } from "../types.js";
+  import type { MarkKind, NoGoKind, Range, Section } from "../types.js";
   import LevelBadge from "./LevelBadge.svelte";
 
   let {
@@ -29,10 +29,18 @@
 
   const km = (m: number) => (m / 1000).toFixed(2);
 
+  const NO_GO: Record<NoGoKind, string> = {
+    cableCars: "cable car",
+    funiculars: "funicular",
+    rackRailways: "rack railway",
+  };
+
   /** What the map adds about a stretch, as short labels. */
   function contextLabels(s: Section): string[] {
     const c = s.context;
     const labels: string[] = [];
+    // On a no-go stretch the terrain details are beside the point.
+    if (c?.noGo) return [`no-go: ${NO_GO[c.noGo]}`];
     if (c?.bridge) labels.push("bridge");
     else if (s.possibleBridge) labels.push("bridge?");
     if (!c) return labels;

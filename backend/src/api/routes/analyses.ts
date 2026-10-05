@@ -3,15 +3,20 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "../../config.js";
-import { measureGpx, score } from "../../exposure/analyze.js";
+import { gpxSource, measureSource, type RouteSource } from "../../exposure/pipeline.js";
+import { parseDirectionsUrl, resolveLink } from "../../google/link.js";
+import { fetchRoute } from "../../google/routes.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
 import {
   annotateSections,
   gpxPath,
   invalidateReferences,
+  hasSource,
   loadAnalysis,
   remeasure,
   retryContextLater,
+  routePath,
+  scoreWith,
 } from "../../hikes.js";
 import { loadSettings } from "../../settings.js";
 
@@ -41,6 +46,8 @@ interface AnalysisRow {
   terrain_source: string;
   confidence: string;
   rating: string | null;
+  kind: string;
+  source_url: string | null;
 }
 
 interface MarkRow {
@@ -63,7 +70,8 @@ function serializeMark(row: MarkRow) {
   };
 }
 
-const SUMMARY_COLUMNS = "id, name, created_at, length_m, level, max_score, terrain_source, confidence, rating";
+const SUMMARY_COLUMNS =
+  "id, name, created_at, length_m, level, max_score, terrain_source, confidence, rating, kind, source_url";
 
 function serialize(row: AnalysisRow) {
   return {
@@ -76,6 +84,8 @@ function serialize(row: AnalysisRow) {
     terrainSource: row.terrain_source,
     confidence: row.confidence,
     rating: row.rating,
+    kind: row.kind,
+    sourceUrl: row.source_url,
   };
 }
 
@@ -88,6 +98,40 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     return { analyses: rows.map(serialize) };
   });
 
+  /**
+   * Measures a new hike or route and stores it. Map context gets only a few
+   * seconds here; if it is not there in time the entry is stored without it
+   * and completed in the background.
+   */
+  async function create(source: RouteSource, fallbackName: string, original: { gpx: string } | null): Promise<number> {
+    const settings = loadSettings(app.db);
+    const measurement = await measureSource(source, settings.measure, true);
+    const analysis = scoreWith(measurement, settings);
+    const { lastInsertRowid } = app.db
+      .prepare(
+        `INSERT INTO analyses (name, created_at, length_m, level, max_score, terrain_source, confidence, result, kind, source_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        source.name ?? fallbackName,
+        new Date().toISOString(),
+        measurement.lengthM,
+        analysis.summary.level,
+        analysis.summary.maxScore,
+        measurement.terrain.source,
+        measurement.terrain.confidence,
+        JSON.stringify(measurement),
+        original ? "hike" : "route",
+        source.url,
+      );
+    const id = Number(lastInsertRowid);
+    fs.mkdirSync(config.uploadsDir, { recursive: true });
+    if (original) fs.writeFileSync(gpxPath(id), original.gpx);
+    else fs.writeFileSync(routePath(id), JSON.stringify(source));
+    if (!measurement.mapContext) retryContextLater(app.db, id);
+    return id;
+  }
+
   app.post("/api/analyses", async (request, reply) => {
     const upload = await request.file();
     if (!upload) return reply.status(400).send({ error: "no file uploaded" });
@@ -99,34 +143,24 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     } catch (err) {
       return reply.status(400).send({ error: (err as Error).message });
     }
+    const id = await create(gpxSource(gpx), path.basename(upload.filename, path.extname(upload.filename)), { gpx: xml });
+    return reply.status(201).send(serialize(getRow(id)!));
+  });
 
-    const settings = loadSettings(app.db);
-    // Map context gets only a few seconds here; if it is not there in time the
-    // hike is stored without it and completed in the background.
-    const measurement = await measureGpx(gpx, settings.measure, true);
-    const analysis = score(measurement, settings.score);
-    const name = analysis.name ?? path.basename(upload.filename, path.extname(upload.filename));
-    const { lastInsertRowid } = app.db
-      .prepare(
-        `INSERT INTO analyses (name, created_at, length_m, level, max_score, terrain_source, confidence, result)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        name,
-        new Date().toISOString(),
-        analysis.lengthM,
-        analysis.summary.level,
-        analysis.summary.maxScore,
-        analysis.terrain.source,
-        analysis.terrain.confidence,
-        JSON.stringify(measurement),
-      );
-    const id = Number(lastInsertRowid);
-    // The original file is kept so hikes can be re-scored when the model changes.
-    fs.mkdirSync(config.uploadsDir, { recursive: true });
-    fs.writeFileSync(gpxPath(id), xml);
-    if (!measurement.mapContext) retryContextLater(app.db, id);
+  // A route from a shared Google Maps directions link.
+  app.post("/api/routes", async (request, reply) => {
+    const parsed = z.object({ url: z.string().trim().min(1).max(4000) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: "paste a Google Maps link" });
+    if (!config.googleMapsApiKey) return reply.status(503).send({ error: "Google Maps links are not set up (no API key)" });
 
+    let source: RouteSource;
+    try {
+      const full = await resolveLink(parsed.data.url);
+      source = await fetchRoute(parseDirectionsUrl(full), parsed.data.url);
+    } catch (err) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+    const id = await create(source, "Route", null);
     return reply.status(201).send(serialize(getRow(id)!));
   });
 
@@ -135,7 +169,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });
     const settings = loadSettings(app.db);
     const analysis = await loadAnalysis(app.db, id.data, settings);
-    if (!analysis) return reply.status(409).send({ error: "this hike has no stored GPX to measure again; upload it anew" });
+    if (!analysis) return reply.status(409).send({ error: "this entry cannot be measured again; add it anew" });
     // Read after loading: measuring again refreshes the summary columns.
     const row = getRow(id.data)!;
     const marks = app.db
@@ -180,10 +214,11 @@ export function registerAnalysesRoute(app: FastifyInstance) {
   // that was unavailable. The hike's name, rating and marks are kept.
   app.post("/api/analyses/:id/reanalyse", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
-    if (!id.success || !getRow(id.data) || !fs.existsSync(gpxPath(id.data))) {
+    if (!id.success || !getRow(id.data) || !hasSource(id.data)) {
       return reply.status(404).send({ error: "not found" });
     }
-    await remeasure(app.db, id.data, loadSettings(app.db));
+    const measurement = await remeasure(app.db, id.data, loadSettings(app.db));
+    if (!measurement.mapContext) retryContextLater(app.db, id.data);
     return serialize(getRow(id.data)!);
   });
 
@@ -211,6 +246,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     app.db.prepare("DELETE FROM analyses WHERE id = ?").run(id.data);
     invalidateReferences();
     fs.rmSync(gpxPath(id.data), { force: true });
+    fs.rmSync(routePath(id.data), { force: true });
     return reply.status(204).send();
   });
 }

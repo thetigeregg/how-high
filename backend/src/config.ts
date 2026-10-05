@@ -19,4 +19,6 @@ export const config = {
   demDir: path.join(dataDir, "dem"),
   uploadsDir: path.join(dataDir, "uploads"),
   maxUploadBytes: intFromEnv("MAX_UPLOAD_MB", 20) * 1024 * 1024,
+  // Routes from Google Maps links are only offered when a key is set.
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null,
 };

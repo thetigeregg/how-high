@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
+    addRoute,
     createMark,
     deleteAnalysis,
     deleteMark,
     fetchAnalyses,
     fetchAnalysis,
+    fetchMeta,
     reanalyse,
     updateAnalysis,
     uploadGpx,
@@ -24,6 +26,7 @@
   let detail = $state<AnalysisDetail | null>(null);
   let selectedId = $state<number | null>(null);
   let uploading = $state(false);
+  let linksAvailable = $state(false);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let hoverIndex = $state<number | null>(null);
@@ -63,10 +66,10 @@
     loading = false;
   }
 
-  async function upload(file: File) {
+  async function add(create: () => Promise<AnalysisSummary>) {
     uploading = true;
     await run(async () => {
-      const created = await uploadGpx(file);
+      const created = await create();
       analyses = [created, ...analyses];
       await select(created.id);
     });
@@ -176,6 +179,9 @@
   });
 
   onMount(() => {
+    fetchMeta()
+      .then((meta) => (linksAvailable = meta.googleMaps))
+      .catch(() => {});
     void run(async () => {
       analyses = await fetchAnalyses();
       const linked = analyses.find((a) => a.id === Number(location.hash.slice(1)));
@@ -190,7 +196,12 @@
       <h1>How High</h1>
       <button type="button" onclick={() => (settingsOpen = true)}>Settings</button>
     </div>
-    <Upload busy={uploading} onfile={upload} />
+    <Upload
+      busy={uploading}
+      links={linksAvailable}
+      onfile={(file) => add(() => uploadGpx(file))}
+      onlink={(url) => add(() => addRoute(url))}
+    />
     <HikeLibrary {analyses} {selectedId} onselect={select} />
   </aside>
 
@@ -209,11 +220,31 @@
             <span>peak score {result.summary.maxScore}</span>
             <span>{km(result.lengthM)}</span>
             <span>{result.terrain.source}</span>
+            {#if detail.summary.sourceUrl}
+              <a href={detail.summary.sourceUrl} target="_blank" rel="noreferrer">Open in Google Maps</a>
+            {/if}
           </p>
+          {#if detail.summary.kind === "route"}
+            <ol class="legs">
+              {#each result.legs as leg}
+                <li>
+                  <button type="button" onclick={() => (selection = { startM: leg.startM, endM: leg.endM })}>
+                    {leg.label}
+                    <span>{km(leg.endM - leg.startM)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+            <p class="note">
+              This is the route Google suggests now; it can differ from the one shown when the link was shared. Roads
+              and railways are scored from the terrain beside them: guardrails and which side you sit on are not known.
+            </p>
+          {/if}
           {#if result.mapContext !== true}
             <p class="note">
-              Terrain only for now: OpenStreetMap could not be reached, so forest, bridges and tunnels are not applied
-              yet. This is retried in the background and the page updates when it succeeds.
+              Map data is incomplete: OpenStreetMap could not be reached for all of this route, so forest, bridges
+              and tunnels are missing in places. This is retried in the background and the page updates when it
+              succeeds.
             </p>
           {/if}
           {#if result.terrain.confidence === "low"}
@@ -387,6 +418,24 @@
     margin: 0;
     color: var(--text-muted);
     font-size: 0.9rem;
+  }
+  .meta a {
+    color: var(--accent);
+  }
+  .legs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0;
+  }
+  .legs button {
+    border-radius: 0.4rem;
+  }
+  .legs span {
+    color: var(--text-muted);
+    margin-left: 0.3rem;
   }
   .note {
     margin: 0.4rem 0 0;

@@ -60,6 +60,20 @@ export function deleteMark(analysisId: number, markId: number): Promise<void> {
   return request(`/api/analyses/${analysisId}/marks/${markId}`, { method: "DELETE" });
 }
 
+/** A route from a shared Google Maps directions link. */
+export function addRoute(url: string): Promise<AnalysisSummary> {
+  return request("/api/routes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+}
+
+/** Which optional features this installation has. */
+export function fetchMeta(): Promise<{ googleMaps: boolean }> {
+  return request("/api/meta");
+}
+
 export function fetchSettings(): Promise<SettingsResponse> {
   return request("/api/settings");
 }

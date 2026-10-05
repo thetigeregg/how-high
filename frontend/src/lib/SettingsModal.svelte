@@ -162,7 +162,7 @@
     },
     {
       title: "No-go transport",
-      intro: "Kinds of transport that make a route a no-go outright. Stored now; applied once routes from Google Maps links are supported.",
+      intro: "Kinds of transport that make a route a no-go outright: that stretch is rated Severe whatever the terrain. Rack railways are recognised only where the map marks the rack rail.",
       knobs: [
         { group: "noGo", key: "cableCars", label: "Cable cars, gondolas and chairlifts", help: "" },
         { group: "noGo", key: "funiculars", label: "Funiculars", help: "" },
@@ -213,6 +213,11 @@
     },
   ];
 
+  // The Levels, Drops, Modifiers and Sections knobs exist twice: once for
+  // hikes and walking, once for car, bus and train. This picks which is shown.
+  let scoreGroup = $state<"score" | "road">("score");
+  const groupOf = (knob: Knob) => (knob.group === "score" ? scoreGroup : knob.group);
+
   let data = $state<SettingsResponse | null>(null);
   let draft = $state<Settings | null>(null);
   let saving = $state(false);
@@ -221,10 +226,10 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   type Value = number | boolean | number[];
-  const read = (settings: Settings, knob: Knob) => (settings[knob.group] as Record<string, Value>)[knob.key];
+  const read = (settings: Settings, knob: Knob) => (settings[groupOf(knob)] as unknown as Record<string, Value>)[knob.key];
   const write = (knob: Knob, value: Value) => {
     if (!draft) return;
-    (draft[knob.group] as Record<string, Value>)[knob.key] = value;
+    (draft[groupOf(knob)] as unknown as Record<string, Value>)[knob.key] = value;
     scheduleSave();
   };
   const isDefault = (knob: Knob) =>
@@ -363,6 +368,21 @@
         </div>
       {/each}
     {/snippet}
+
+    <div class="tabs" role="tablist" aria-label="Which kind of travel the scoring knobs apply to">
+      {#each [{ value: "score", label: "Hikes and walking" }, { value: "road", label: "Car, bus and train" }] as tab}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scoreGroup === tab.value}
+          class:active={scoreGroup === tab.value}
+          onclick={() => (scoreGroup = tab.value as "score" | "road")}
+        >
+          {tab.label}
+        </button>
+      {/each}
+      <span>Levels, drops, modifiers and sections are set separately for each. The rest is shared.</span>
+    </div>
 
     {#each sections as section}
       {#if section.advanced}
@@ -524,6 +544,23 @@
     background: none;
     color: var(--accent);
     font-size: inherit;
+  }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1.25rem;
+  }
+  .tabs span {
+    flex: 1 1 14rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  button.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
   }
   footer {
     margin-top: 1.25rem;

@@ -1,20 +1,23 @@
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { DEFAULT_MEASURE, type MeasureParams } from "./exposure/metrics.js";
-import { DEFAULT_PARAMS, type ScoreParams } from "./exposure/score.js";
+import { DEFAULT_PARAMS, DEFAULT_ROAD_PARAMS, type ScoreParams } from "./exposure/score.js";
 
 /** Every tweakable knob. One set applies to all hikes. */
 export interface Settings {
-  /** Applied when scoring; changes take effect immediately. */
+  /** Applied when scoring hikes and walked stretches; changes take effect immediately. */
   score: ScoreParams;
+  /** The same knobs for stretches by car, bus and train. */
+  road: ScoreParams;
   /** Applied when measuring; changes mean every hike is measured again. */
   measure: MeasureParams;
-  /** Kinds of transport that make a route a no-go outright. Not used for hikes yet. */
+  /** Kinds of transport that make a route a no-go outright. */
   noGo: { cableCars: boolean; funiculars: boolean; rackRailways: boolean };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   score: DEFAULT_PARAMS,
+  road: DEFAULT_ROAD_PARAMS,
   measure: DEFAULT_MEASURE,
   noGo: { cableCars: true, funiculars: true, rackRailways: true },
 };
@@ -25,8 +28,7 @@ const range = (min: number, max: number) =>
     message: "the first value must be below the second",
   });
 
-export const settingsSchema = z.object({
-  score: z.object({
+const scoreSchema = z.object({
     fallHeightM: range(0, 500),
     drop10M: range(0, 100),
     drop30M: range(0, 200),
@@ -44,7 +46,11 @@ export const settingsSchema = z.object({
     dropWeight: z.number().min(0).max(1),
     mergeGapM: z.number().min(0).max(500),
     minLengthM: z.number().min(0).max(500),
-  }),
+});
+
+export const settingsSchema = z.object({
+  score: scoreSchema,
+  road: scoreSchema,
   measure: z.object({
     fallSlopeDeg: z.number().min(10).max(80),
     fallRunoutM: z.number().min(2).max(100),
@@ -60,6 +66,7 @@ export function loadSettings(db: Database.Database): Settings {
   // Knobs added since the settings were last saved take their defaults.
   return {
     score: { ...DEFAULT_SETTINGS.score, ...stored.score },
+    road: { ...DEFAULT_SETTINGS.road, ...stored.road },
     measure: { ...DEFAULT_SETTINGS.measure, ...stored.measure },
     noGo: { ...DEFAULT_SETTINGS.noGo, ...stored.noGo },
   };

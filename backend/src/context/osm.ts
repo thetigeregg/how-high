@@ -20,15 +20,27 @@ const QUICK_TIMEOUT_MS = 12_000;
 
 const cacheDir = path.join(config.dataDir, "osm");
 
-function query([west, south, east, north]: [number, number, number, number]): string {
-  return `[out:json][timeout:25][bbox:${south},${west},${north},${east}];
+/** Radius around the line within which ways are fetched, metres. */
+const AROUND_M = 60;
+
+/**
+ * Ways are fetched only along the line (a bounding box of a long drive would
+ * pull in every street of every town it passes). Forest has to come by
+ * bounding box: a path deep inside a large wood is nowhere near its outline.
+ */
+function query(line: Array<[number, number]>, bbox: [number, number, number, number]): string {
+  const around = `around:${AROUND_M},${line.map(([lon, lat]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join(",")}`;
+  const [west, south, east, north] = bbox.map((v) => v.toFixed(4));
+  const box = `${south},${west},${north},${east}`;
+  return `[out:json][timeout:25];
 (
-  way[highway];
-  way[natural=cliff];
-  way[landuse=forest];
-  way[natural=wood];
-  relation[landuse=forest];
-  relation[natural=wood];
+  way(${around})[highway];
+  way(${around})[railway~"^(rail|narrow_gauge|light_rail|tram|funicular|subway)$"];
+  way(${around})[natural=cliff];
+  way[landuse=forest](${box});
+  way[natural=wood](${box});
+  relation[landuse=forest](${box});
+  relation[natural=wood](${box});
 );
 out tags geom;`;
 }
@@ -50,20 +62,24 @@ async function ask(endpoint: string, body: URLSearchParams, timeoutMs: number): 
 }
 
 /**
- * Paths, forest and cliffs inside a lon/lat bounding box (west, south, east,
- * north). Throws when no Overpass instance answers; callers treat context as
- * optional.
+ * Paths, roads, railways and cliffs along a lon/lat line, plus forest inside
+ * the bounding box (west, south, east, north) around it. Throws when no
+ * Overpass instance answers; callers treat context as optional.
  *
  * Normally the instances are tried one after another with a generous
  * timeout. In quick mode all are asked at once and the first answer within a
  * few seconds wins, so an upload is never held up for long.
  */
-export async function fetchOsm(bbox: [number, number, number, number], quick = false): Promise<OsmElement[]> {
-  const rounded = bbox.map((v) => v.toFixed(4)).join(",");
-  const file = path.join(cacheDir, `${createHash("sha1").update(rounded).digest("hex")}.json`);
+export async function fetchOsm(
+  line: Array<[number, number]>,
+  bbox: [number, number, number, number],
+  quick = false,
+): Promise<OsmElement[]> {
+  const data = query(line, bbox);
+  const file = path.join(cacheDir, `${createHash("sha1").update(data).digest("hex")}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf-8")) as OsmElement[];
 
-  const body = new URLSearchParams({ data: query(bbox) });
+  const body = new URLSearchParams({ data });
   let elements: OsmElement[] | undefined;
   if (quick) {
     elements = await Promise.any(ENDPOINTS.map((endpoint) => ask(endpoint, body, QUICK_TIMEOUT_MS))).catch(() => undefined);

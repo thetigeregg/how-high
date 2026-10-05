@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { config } from "./config.js";
-import { measureGpx, score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
+import { score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
+import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.js";
 import { mostSimilar, profileOf, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
@@ -13,7 +14,24 @@ import { loadSettings, type Settings } from "./settings.js";
 // current settings. The level and peak score columns are a cache of that for
 // the library list, refreshed whenever settings change.
 
+// What a hike or route was made from is kept so it can be measured again: the
+// uploaded GPX for hikes, the fetched route as JSON for links.
 export const gpxPath = (id: number) => path.join(config.uploadsDir, `${id}.gpx`);
+export const routePath = (id: number) => path.join(config.uploadsDir, `${id}.json`);
+
+export const hasSource = (id: number) => fs.existsSync(gpxPath(id)) || fs.existsSync(routePath(id));
+
+function loadSource(id: number): RouteSource {
+  if (fs.existsSync(routePath(id))) return JSON.parse(fs.readFileSync(routePath(id), "utf-8")) as RouteSource;
+  return gpxSource(parseGpx(fs.readFileSync(gpxPath(id), "utf-8")));
+}
+
+/** Scores a measurement with the settings that belong to its profile. */
+export function scoreWith(measurement: Measurement, settings: Settings): Analysis {
+  return measurement.profile === "road"
+    ? score(measurement, settings.road, { walkParams: settings.score, noGo: settings.noGo })
+    : score(measurement, settings.score, { noGo: settings.noGo });
+}
 
 function sameParams(a: object | undefined, b: object): boolean {
   return a !== undefined && JSON.stringify(a) === JSON.stringify(b);
@@ -36,8 +54,8 @@ function writeMeasurement(db: Database.Database, id: number, measurement: Measur
 
 /** Measures a hike again from its stored GPX and saves the result. */
 export async function remeasure(db: Database.Database, id: number, settings: Settings): Promise<Measurement> {
-  const measurement = await measureGpx(parseGpx(fs.readFileSync(gpxPath(id), "utf-8")), settings.measure);
-  writeMeasurement(db, id, measurement, score(measurement, settings.score));
+  const measurement = await measureSource(loadSource(id), settings.measure);
+  writeMeasurement(db, id, measurement, scoreWith(measurement, settings));
   invalidateReferences();
   return measurement;
 }
@@ -62,7 +80,7 @@ export function retryContextLater(db: Database.Database, id: number, attempt = 0
   setTimeout(
     async () => {
       const exists = db.prepare("SELECT 1 FROM analyses WHERE id = ?").get(id) !== undefined;
-      if (!exists || !fs.existsSync(gpxPath(id))) {
+      if (!exists || !hasSource(id)) {
         awaitingContext.delete(id);
         return;
       }
@@ -89,7 +107,7 @@ export async function loadMeasurement(db: Database.Database, id: number, setting
   const row = db.prepare("SELECT result FROM analyses WHERE id = ?").get(id) as { result: string } | undefined;
   if (!row) return null;
   const stored = JSON.parse(row.result) as Measurement;
-  if (sameParams(stored.params, settings.measure) || !fs.existsSync(gpxPath(id))) return stored;
+  if (sameParams(stored.params, settings.measure) || !hasSource(id)) return stored;
   logger.info({ id }, "measuring hike again for changed settings");
   return remeasure(db, id, settings);
 }
@@ -97,7 +115,7 @@ export async function loadMeasurement(db: Database.Database, id: number, setting
 export async function loadAnalysis(db: Database.Database, id: number, settings = loadSettings(db)): Promise<Analysis | null> {
   const measurement = await loadMeasurement(db, id, settings);
   // A stored result that could not be re-measured into the current format cannot be scored.
-  return measurement?.params ? score(measurement, settings.score) : null;
+  return measurement?.params ? scoreWith(measurement, settings) : null;
 }
 
 /** Brings every hike's cached level and peak score in line with the current settings. */

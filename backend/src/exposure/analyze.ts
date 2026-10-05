@@ -1,13 +1,8 @@
-import { buildContext, type TerrainContext } from "../context/context.js";
-import { fetchOsm } from "../context/osm.js";
-import { localProjection, lv95, type Projection } from "../geo/projection.js";
-import type { GpxTrack } from "../gpx/parse.js";
-import { resample, type TrackPoint } from "../gpx/resample.js";
+import type { TerrainContext, TravelKind } from "../context/context.js";
+import { lv95, type Projection } from "../geo/projection.js";
+import type { TrackPoint } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
-import { loadSwissTerrain } from "../terrain/swissalti.js";
-import { loadTerrariumTerrain } from "../terrain/terrarium.js";
 import { DEFAULT_MEASURE, measureTrack, type MeasureParams, type PointMetrics } from "./metrics.js";
-import { logger } from "../logger.js";
 import {
   adjustScore,
   DEFAULT_PARAMS,
@@ -16,20 +11,14 @@ import {
   levelOf,
   scorePoint,
   type Level,
+  type NoGoKind,
+  type NoGoSettings,
   type PointContext,
   type ScoreParams,
 } from "./score.js";
 
-/** Terrain is needed this far around the track (longest ray plus fall traces). */
-const TERRAIN_BUFFER_M = 250;
-/** Swiss data is abandoned for the global fallback past this share of gaps. */
-const MAX_SWISS_GAP_SHARE = 0.02;
-
 /** A side with less drop than this is not the exposed side. */
 const EXPOSED_SIDE_MIN_DROP_M = 3;
-/** Map context is fetched this far around the track. */
-const CONTEXT_BUFFER_M = 100;
-
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 export interface AnalysedPoint {
@@ -68,6 +57,8 @@ export interface Section {
     sacGrade: number | null;
     aided: boolean;
     cliff: boolean;
+    /** Set when the stretch is a no-go outright because of how it is travelled. */
+    noGo: NoGoKind | null;
   } | null;
   /** Peak score that survives the most favourable GPS shift: "at least this". */
   robustScore: number;
@@ -93,6 +84,8 @@ export interface Analysis {
   mapContext: boolean;
   /** Score at which yellow, orange and red start, as used for this result. */
   thresholds: [number, number, number];
+  profile: Profile;
+  legs: Leg[];
   summary: {
     maxScore: number;
     level: Level;
@@ -102,6 +95,30 @@ export interface Analysis {
   sections: Section[];
   points: AnalysedPoint[];
 }
+
+/** How a stretch is travelled. Ferries are carried along but never scored. */
+export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
+/** Which family of settings a route is scored with. */
+export type Profile = "hike" | "road";
+
+/** One stretch of a route travelled in one way, e.g. a single train ride. */
+export interface Leg {
+  mode: LegMode;
+  label: string;
+  startM: number;
+  endM: number;
+}
+
+/** The kind of mapped way each leg mode is matched against; null for none. */
+export const TRAVEL_KIND: Record<LegMode, TravelKind | null> = {
+  hike: "foot",
+  walk: "foot",
+  drive: "road",
+  bus: "road",
+  rail: "rail",
+  lift: null,
+  ferry: null,
+};
 
 /**
  * What was found along a track, before any scoring. This is what gets stored:
@@ -116,51 +133,29 @@ export interface Measurement {
   mapContext: boolean;
   /** The measurement settings this was taken with. */
   params: MeasureParams;
-  points: Array<{
-    dist: number;
-    lon: number;
-    lat: number;
-    /** Unit vector of travel in the metric plane. */
-    heading: [number, number];
-    metrics: PointMetrics | null;
-    /** The same measurements with the track shifted left and right by the GPS error. */
-    shifted: [PointMetrics | null, PointMetrics | null];
-    context: PointContext | null;
-  }>;
+  /** Absent on hikes measured before routes existed; read as a single hike leg. */
+  profile?: Profile;
+  legs?: Leg[];
+  points: MeasuredPoint[];
 }
 
-interface Prepared {
-  projection: Projection;
-  terrain: Terrain;
-  track: TrackPoint[];
-  swiss: boolean;
-}
-
-async function prepare(gpx: GpxTrack): Promise<Prepared> {
-  const inSwissGrid = gpx.points.every(({ lon, lat }) => lon > 5.8 && lon < 10.6 && lat > 45.7 && lat < 47.9);
-  if (inSwissGrid) {
-    const track = resample(gpx.points.map(({ lon, lat }) => lv95.forward(lon, lat)), 5);
-    const terrain = await loadSwissTerrain(track.map((p) => [p.x, p.y]), TERRAIN_BUFFER_M);
-    const gaps = track.filter((p) => Number.isNaN(terrain.elevation(p.x, p.y))).length;
-    if (gaps / track.length <= MAX_SWISS_GAP_SHARE) return { projection: lv95, terrain, track, swiss: true };
-  }
-
-  const lons = gpx.points.map((p) => p.lon);
-  const lats = gpx.points.map((p) => p.lat);
-  const projection = localProjection(
-    (Math.min(...lons) + Math.max(...lons)) / 2,
-    (Math.min(...lats) + Math.max(...lats)) / 2,
-  );
-  const track = resample(gpx.points.map(({ lon, lat }) => projection.forward(lon, lat)), 15);
-  const terrain = await loadTerrariumTerrain(track.map((p) => [p.x, p.y]), projection, TERRAIN_BUFFER_M);
-  return { projection, terrain, track, swiss: false };
+export interface MeasuredPoint {
+  dist: number;
+  lon: number;
+  lat: number;
+  /** Unit vector of travel in the metric plane. */
+  heading: [number, number];
+  metrics: PointMetrics | null;
+  /** The same measurements with the track shifted left and right by the GPS error. */
+  shifted: [PointMetrics | null, PointMetrics | null];
+  context: PointContext | null;
 }
 
 function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
   let worstIndex = start;
   let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxDrop100M = 0, maxCrossSlopeDeg = 0, bridge = false;
   let known = 0, wooded = 0, wide = 0;
-  const context = { forest: false, tunnel: false, bridge: false, wideTrack: false, sacGrade: null as number | null, aided: false, cliff: false };
+  const context = { forest: false, tunnel: false, bridge: false, wideTrack: false, sacGrade: null as number | null, aided: false, cliff: false, noGo: null as NoGoKind | null };
   for (let i = start; i <= end; i++) {
     const p = points[i];
     if (!p.metrics || p.score === null) continue;
@@ -174,6 +169,7 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
       context.bridge ||= p.context.bridge;
       context.aided ||= p.context.aided;
       context.cliff ||= p.context.cliff;
+      context.noGo ??= p.context.noGo;
       if (p.context.sacGrade !== null) context.sacGrade = Math.max(context.sacGrade ?? 0, p.context.sacGrade);
     }
     robustScore = Math.max(robustScore, p.scoreLow ?? 0);
@@ -228,7 +224,13 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
 }
 
 /** Looks up what the map knows about one track point, given which way it is exposed. */
-function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics, forestCheckM: number): PointContext {
+function describePoint(
+  context: TerrainContext,
+  p: TrackPoint,
+  m: PointMetrics,
+  forestCheckM: number,
+  kind: TravelKind | null,
+): PointContext {
   const left = Math.max(m.fallLeft, m.dropLeft30);
   const right = Math.max(m.fallRight, m.dropRight30);
   // Trees only hide a drop if they also stand on the side(s) it is on.
@@ -240,7 +242,7 @@ function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics, 
     sides.length === 0
       ? context.inForest(p.x, p.y)
       : sides.every((s) => wooded(s, forestCheckM / 2) && wooded(s, forestCheckM));
-  const path = context.pathAt(p.x, p.y);
+  const path = kind ? context.pathAt(p.x, p.y, kind) : null;
   return {
     forest,
     matched: path !== null,
@@ -250,6 +252,7 @@ function describePoint(context: TerrainContext, p: TrackPoint, m: PointMetrics, 
     sacGrade: path?.sacGrade ?? null,
     aided: path?.aided ?? false,
     cliff: context.cliffNear(p.x, p.y),
+    noGo: path?.funicular ? "funiculars" : path?.rack ? "rackRailways" : null,
   };
 }
 
@@ -264,10 +267,6 @@ export function measure(
   options: { name?: string | null; swiss?: boolean; context?: TerrainContext; params?: MeasureParams } = {},
 ): Measurement {
   const params = options.params ?? DEFAULT_MEASURE;
-  const centre = measureTrack(terrain, track, 0, params);
-  const left = measureTrack(terrain, track, params.gpsErrorM, params);
-  const right = measureTrack(terrain, track, -params.gpsErrorM, params);
-
   return {
     name: options.name ?? null,
     lengthM: track[track.length - 1].dist,
@@ -276,28 +275,81 @@ export function measure(
     swiss: options.swiss ?? false,
     mapContext: options.context !== undefined,
     params,
-    points: track.map((p, i) => {
-      const [lon, lat] = projection.inverse(p.x, p.y);
-      const metrics = centre[i];
-      return {
-        dist: p.dist,
-        lon,
-        lat,
-        heading: [p.tx, p.ty],
-        metrics,
-        shifted: [left[i], right[i]],
-        context: metrics && options.context ? describePoint(options.context, p, metrics, params.forestCheckM) : null,
-      };
-    }),
+    profile: "hike",
+    legs: [{ mode: "hike", label: "Hike", startM: 0, endM: track[track.length - 1].dist }],
+    points: measurePoints(terrain, track, projection, options.context, params, () => "foot"),
   };
 }
 
-/** Turns measurements into scores, levels and flagged sections under the given settings. */
-export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PARAMS): Analysis {
+/**
+ * Measures every point of a stretch of track against one terrain and, when
+ * available, map context. `kindAt` says which kind of mapped way each point
+ * should be matched to.
+ */
+export function measurePoints(
+  terrain: Terrain,
+  track: TrackPoint[],
+  projection: Projection,
+  context: TerrainContext | undefined,
+  params: MeasureParams,
+  kindAt: (index: number) => TravelKind | null,
+): MeasuredPoint[] {
+  const centre = measureTrack(terrain, track, 0, params);
+  const left = measureTrack(terrain, track, params.gpsErrorM, params);
+  const right = measureTrack(terrain, track, -params.gpsErrorM, params);
+  return track.map((p, i) => {
+    const [lon, lat] = projection.inverse(p.x, p.y);
+    const metrics = centre[i];
+    return {
+      dist: p.dist,
+      lon,
+      lat,
+      heading: [p.tx, p.ty],
+      metrics,
+      shifted: [left[i], right[i]],
+      context: metrics && context ? describePoint(context, p, metrics, params.forestCheckM, kindAt(i)) : null,
+    };
+  });
+}
+
+/** Stand-in measurements for a no-go point that has no terrain data. */
+const FLAT: PointMetrics = {
+  elevation: 0, slopeDeg: 0, crossSlopeDeg: 0, fallLeft: 0, fallRight: 0, drop10: 0, drop30: 0, drop100: 0,
+  dropLeft30: 0, dropRight30: 0, trackGradeDeg: 0, bridgeGap: 0,
+};
+
+export interface ScoreOptions {
+  /** Settings for the stretches of a road route that are walked; defaults to `params`. */
+  walkParams?: ScoreParams;
+  /** Which kinds of transport are a no-go outright; defaults to all of them. */
+  noGo?: NoGoSettings;
+}
+
+const ALL_NO_GO: NoGoSettings = { cableCars: true, funiculars: true, rackRailways: true };
+
+/**
+ * Turns measurements into scores, levels and flagged sections under the given
+ * settings. `params` are those of the route's profile; they set the levels
+ * and sectioning for the whole route.
+ */
+export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PARAMS, options: ScoreOptions = {}): Analysis {
   const { spacingM: spacing, lengthM } = measurement;
+  const noGo = options.noGo ?? ALL_NO_GO;
+  const legs = measurement.legs ?? [{ mode: "hike" as const, label: "Hike", startM: 0, endM: lengthM }];
+  const routeParams = params;
+  let legIndex = 0;
 
   const points: AnalysedPoint[] = measurement.points.map((p) => {
     const { dist, lon, lat, context } = p;
+    while (legIndex < legs.length - 1 && dist > legs[legIndex].endM) legIndex++;
+    const mode = legs[legIndex].mode;
+    const params = mode === "walk" || mode === "hike" ? (options.walkParams ?? routeParams) : routeParams;
+    if (mode === "ferry") {
+      return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
+    }
+    if (context?.noGo && noGo[context.noGo]) {
+      return { dist, lon, lat, score: 100, rawScore: 100, context, scoreLow: 100, scoreHigh: 100, level: "red", metrics: p.metrics ?? FLAT };
+    }
     if (!p.metrics) {
       return { dist, lon, lat, score: null, rawScore: null, context: null, scoreLow: null, scoreHigh: null, level: null, metrics: null };
     }
@@ -320,7 +372,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
       context,
       scoreLow: Math.min(...variants),
       scoreHigh: Math.max(...variants),
-      level: levelOf(adjusted, params),
+      level: levelOf(adjusted, routeParams),
       metrics,
     };
   });
@@ -345,6 +397,8 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     terrain: measurement.terrain,
     mapContext: measurement.mapContext,
     thresholds: params.thresholds,
+    profile: measurement.profile ?? "hike",
+    legs,
     summary: {
       maxScore,
       level: sections.reduce<Level>((worst, s) => (LEVELS.indexOf(s.level) > LEVELS.indexOf(worst) ? s.level : worst), "green"),
@@ -366,53 +420,3 @@ export function analyseTrack(
   return score(measure(terrain, track, projection, { ...options, params: options.measure }), options.params);
 }
 
-/** Map context around the track, or undefined when OpenStreetMap cannot be reached. */
-async function loadContext(track: TrackPoint[], projection: Projection, quick: boolean): Promise<TerrainContext | undefined> {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of track) {
-    minX = Math.min(minX, p.x);
-    minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x);
-    maxY = Math.max(maxY, p.y);
-  }
-  const bounds = {
-    minX: minX - CONTEXT_BUFFER_M,
-    minY: minY - CONTEXT_BUFFER_M,
-    maxX: maxX + CONTEXT_BUFFER_M,
-    maxY: maxY + CONTEXT_BUFFER_M,
-  };
-  const corners = [
-    projection.inverse(bounds.minX, bounds.minY),
-    projection.inverse(bounds.minX, bounds.maxY),
-    projection.inverse(bounds.maxX, bounds.minY),
-    projection.inverse(bounds.maxX, bounds.maxY),
-  ];
-  const lons = corners.map((c) => c[0]);
-  const lats = corners.map((c) => c[1]);
-  try {
-    const elements = await fetchOsm([Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)], quick);
-    return buildContext(elements, projection, bounds);
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, "analysing without map context");
-    return undefined;
-  }
-}
-
-/**
- * Everything slow for one GPX track: pick and fetch terrain and map context,
- * then measure. With `quickContext`, map context is given only a few seconds
- * before the track is measured without it.
- */
-export async function measureGpx(
-  gpx: GpxTrack,
-  params: MeasureParams = DEFAULT_MEASURE,
-  quickContext = false,
-): Promise<Measurement> {
-  const { projection, terrain, track, swiss } = await prepare(gpx);
-  return measure(terrain, track, projection, {
-    name: gpx.name,
-    swiss,
-    params,
-    context: await loadContext(track, projection, quickContext),
-  });
-}

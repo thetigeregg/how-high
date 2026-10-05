@@ -110,7 +110,7 @@ describe("findRuns", () => {
 
 describe("map context", () => {
   const slope = ground((x) => 1000 - x);
-  const path = { tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false };
+  const path = { tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false, rack: false, funicular: false };
   const context = (overrides: Partial<TerrainContext>): TerrainContext => ({
     inForest: () => false,
     pathAt: () => null,
@@ -192,9 +192,14 @@ describe("buildContext", () => {
   });
 
   it("matches the nearest mapped path and reads its tags", () => {
-    expect(context.pathAt(...at(47.002, 8.00005))).toEqual({ tunnel: false, bridge: true, wide: false, sacGrade: 4, aided: false });
+    expect(context.pathAt(...at(47.002, 8.00005))).toEqual({
+      tunnel: false, bridge: true, wide: false, sacGrade: 4, aided: false, rack: false, funicular: false,
+    });
     expect(context.pathAt(...at(47.002, 8.00395))).toMatchObject({ wide: true, tunnel: false });
     expect(context.pathAt(...at(47.002, 8.002))).toBeNull();
+    // Footpaths and forestry tracks are not somewhere a car or train runs.
+    expect(context.pathAt(...at(47.002, 8.00005), "road")).toBeNull();
+    expect(context.pathAt(...at(47.002, 8.00395), "rail")).toBeNull();
   });
 });
 
@@ -228,5 +233,41 @@ describe("settings", () => {
     expect(settingsSchema.safeParse(DEFAULT_SETTINGS).success).toBe(true);
     expect(settingsSchema.safeParse({ ...DEFAULT_SETTINGS, score: { ...DEFAULT_PARAMS, drop10M: [16, 4] } }).success).toBe(false);
     expect(settingsSchema.safeParse({ ...DEFAULT_SETTINGS, score: { ...DEFAULT_PARAMS, thresholds: [50, 25, 75] } }).success).toBe(false);
+  });
+});
+
+describe("routes", () => {
+  const flat = measure(ground(() => 1000), northbound(0), identity);
+  const noGoContext = { forest: false, matched: false, tunnel: false, bridge: false, wide: false, sacGrade: null, aided: false, cliff: false };
+  // The second half of a flat route is ridden on a cable car.
+  const withLift = {
+    ...flat,
+    profile: "road" as const,
+    legs: [
+      { mode: "bus" as const, label: "Bus 1", startM: 0, endM: 195 },
+      { mode: "lift" as const, label: "Cable car", startM: 200, endM: 400 },
+    ],
+    points: flat.points.map((p) => (p.dist >= 200 ? { ...p, context: { ...noGoContext, noGo: "cableCars" as const } } : p)),
+  };
+
+  it("rates no-go transport as severe whatever the terrain", () => {
+    const analysis = score(withLift);
+    expect(analysis.sections).toHaveLength(1);
+    expect(analysis.sections[0]).toMatchObject({ level: "red", startM: 200, maxScore: 100 });
+    expect(analysis.sections[0].context?.noGo).toBe("cableCars");
+    expect(analysis.legs.map((l) => l.mode)).toEqual(["bus", "lift"]);
+  });
+
+  it("leaves it alone when that kind of transport is allowed in settings", () => {
+    const analysis = score(withLift, DEFAULT_PARAMS, { noGo: { cableCars: false, funiculars: true, rackRailways: true } });
+    expect(analysis.sections).toEqual([]);
+  });
+
+  it("scores walked stretches of a road route with the walking settings", () => {
+    const slope = measure(ground((x) => 1000 - x), northbound(0), identity);
+    const walked = { ...slope, profile: "road" as const, legs: [{ mode: "walk" as const, label: "Walk", startM: 0, endM: 400 }] };
+    const lenient = { ...DEFAULT_PARAMS, fallHeightM: [900, 999] as [number, number], drop10M: [900, 999] as [number, number], drop30M: [900, 999] as [number, number], drop100M: [900, 999] as [number, number], crossSlopeDeg: [80, 89] as [number, number] };
+    expect(score(walked, lenient).summary.level).toBe("green");
+    expect(score(walked, lenient, { walkParams: DEFAULT_PARAMS }).summary.level).toBe("red");
   });
 });

@@ -10,13 +10,19 @@ export interface PathInfo {
   sacGrade: number | null;
   /** Ladders, fixed ropes or via ferrata. */
   aided: boolean;
+  /** Railway with a rack rail (cog railway). */
+  rack: boolean;
+  funicular: boolean;
 }
+
+/** Which mapped ways a point is matched against, by how the stretch is travelled. */
+export type TravelKind = "foot" | "road" | "rail";
 
 /** Map knowledge the terrain model cannot see, in the metric plane of the analysis. */
 export interface TerrainContext {
   inForest(x: number, y: number): boolean;
-  /** The mapped path nearest to the point, or null when none is close. */
-  pathAt(x: number, y: number): PathInfo | null;
+  /** The mapped way of the given kind nearest to the point, or null when none is close. */
+  pathAt(x: number, y: number, kind?: TravelKind): PathInfo | null;
   /** Whether a mapped cliff line runs right next to the point. */
   cliffNear(x: number, y: number): boolean;
 }
@@ -33,8 +39,8 @@ type Line = Array<[number, number]>;
 
 const FOREST_CELL_M = 5;
 const INDEX_CELL_M = 50;
-/** A mapped way further than this from the GPS line is some other path. */
-const MATCH_RADIUS_M = 15;
+/** A mapped way further than this from the line is some other path. */
+const MATCH_RADIUS_M: Record<TravelKind, number> = { foot: 15, road: 25, rail: 30 };
 
 const SAC_GRADES: Record<string, number> = {
   hiking: 1,
@@ -48,6 +54,8 @@ const WIDE_HIGHWAYS = new Set([
   "track", "service", "unclassified", "residential", "living_street", "pedestrian",
   "tertiary", "secondary", "primary", "trunk", "cycleway",
 ]);
+/** Ways a car or bus can be on. */
+const ROADS = /^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|road)(_link)?$/;
 
 function describePath(tags: Record<string, string>): PathInfo {
   const set = (key: string) => tags[key] !== undefined && tags[key] !== "no";
@@ -55,9 +63,11 @@ function describePath(tags: Record<string, string>): PathInfo {
   return {
     tunnel: set("tunnel") || tags.covered === "yes",
     bridge: set("bridge"),
-    wide: WIDE_HIGHWAYS.has(tags.highway) || width >= 2.5,
+    wide: WIDE_HIGHWAYS.has(tags.highway) || ROADS.test(tags.highway ?? "") || width >= 2.5,
     sacGrade: SAC_GRADES[tags.sac_scale] ?? null,
     aided: tags.highway === "via_ferrata" || set("via_ferrata_scale") || set("safety_rope") || set("ladder") || set("assisted_trail"),
+    rack: set("rack"),
+    funicular: tags.railway === "funicular",
   };
 }
 
@@ -136,10 +146,10 @@ class SegmentIndex<T> {
     }
   }
 
-  /** Value of the segment nearest to the point, if one lies within the match radius. */
-  nearest(x: number, y: number): T | null {
-    let best: T | null = null;
-    let bestDist = MATCH_RADIUS_M;
+  /** Value and distance of the segment nearest to the point, if one lies within the radius. */
+  nearest(x: number, y: number, radius: number): { value: T; dist: number } | null {
+    let best: { value: T; dist: number } | null = null;
+    let bestDist = radius;
     const cx = Math.floor(x / INDEX_CELL_M);
     const cy = Math.floor(y / INDEX_CELL_M);
     for (let dx = -1; dx <= 1; dx++) {
@@ -151,7 +161,7 @@ class SegmentIndex<T> {
           const dist = Math.hypot(x - (s.ax + vx * t), y - (s.ay + vy * t));
           if (dist <= bestDist) {
             bestDist = dist;
-            best = s.value;
+            best = { value: s.value, dist };
           }
         }
       }
@@ -171,6 +181,8 @@ export function buildContext(
 
   const forest = new Mask(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
   const paths = new SegmentIndex<PathInfo>();
+  const roads = new SegmentIndex<PathInfo>();
+  const rails = new SegmentIndex<PathInfo>();
   const cliffs = new SegmentIndex<true>();
 
   for (const element of elements) {
@@ -182,14 +194,24 @@ export function buildContext(
       forest.fill(lines);
     } else if (element.geometry && tags.natural === "cliff") {
       cliffs.add(project(element.geometry), true);
+    } else if (element.geometry && tags.railway) {
+      rails.add(project(element.geometry), describePath(tags));
     } else if (element.geometry && tags.highway) {
-      paths.add(project(element.geometry), describePath(tags));
+      (ROADS.test(tags.highway) ? roads : paths).add(project(element.geometry), describePath(tags));
     }
   }
 
   return {
     inForest: (x, y) => forest.at(x, y),
-    pathAt: (x, y) => paths.nearest(x, y),
-    cliffNear: (x, y) => cliffs.nearest(x, y) !== null,
+    pathAt: (x, y, kind = "foot") => {
+      const radius = MATCH_RADIUS_M[kind];
+      if (kind === "rail") return rails.nearest(x, y, radius)?.value ?? null;
+      if (kind === "road") return roads.nearest(x, y, radius)?.value ?? null;
+      // On foot any mapped way will do; take whichever is closer.
+      const path = paths.nearest(x, y, radius);
+      const road = roads.nearest(x, y, radius);
+      return (path && road ? (path.dist <= road.dist ? path : road) : (path ?? road))?.value ?? null;
+    },
+    cliffNear: (x, y) => cliffs.nearest(x, y, MATCH_RADIUS_M.foot) !== null,
   };
 }

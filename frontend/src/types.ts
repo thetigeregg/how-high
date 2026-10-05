@@ -11,6 +11,20 @@ export interface AnalysisSummary {
   terrainSource: string;
   confidence: "high" | "low";
   rating: Rating | null;
+  /** 'hike' from a GPX file, 'route' from a Google Maps link. */
+  kind: "hike" | "route";
+  sourceUrl: string | null;
+}
+
+export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
+export type NoGoKind = "cableCars" | "funiculars" | "rackRailways";
+
+/** One stretch of a route travelled in one way, e.g. a single train ride. */
+export interface Leg {
+  mode: LegMode;
+  label: string;
+  startM: number;
+  endM: number;
 }
 
 export interface PointMetrics {
@@ -37,6 +51,7 @@ export interface PointContext {
   sacGrade: number | null;
   aided: boolean;
   cliff: boolean;
+  noGo?: NoGoKind | null;
 }
 
 export interface AnalysedPoint {
@@ -77,6 +92,7 @@ export interface Section {
     sacGrade: number | null;
     aided: boolean;
     cliff: boolean;
+    noGo?: NoGoKind | null;
   } | null;
   robustScore: number;
   maxFallM: number;
@@ -104,6 +120,8 @@ export interface Analysis {
   mapContext?: boolean;
   /** Score at which Mild, Exposed and Severe start. */
   thresholds: [number, number, number];
+  profile: "hike" | "road";
+  legs: Leg[];
   summary: {
     maxScore: number;
     level: Level;
@@ -141,8 +159,7 @@ export interface AnalysisDetail {
 type Pair = [number, number];
 
 /** Every tweakable knob; one set applies to all hikes. Mirrors the backend. */
-export interface Settings {
-  score: {
+export interface ScoreSettings {
     fallHeightM: Pair;
     drop10M: Pair;
     drop30M: Pair;
@@ -158,7 +175,13 @@ export interface Settings {
     dropWeight: number;
     mergeGapM: number;
     minLengthM: number;
-  };
+}
+
+export interface Settings {
+  /** For hikes and walked stretches. */
+  score: ScoreSettings;
+  /** The same knobs for car, bus and train. */
+  road: ScoreSettings;
   measure: {
     fallSlopeDeg: number;
     fallRunoutM: number;
