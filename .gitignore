@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+local-data/
+*.log
+.DS_Store
+
+# Planning notes, kept local.
+DESIGN.md
