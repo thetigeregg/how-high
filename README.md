@@ -32,12 +32,31 @@ Then open http://localhost:8421.
 | `PUID` / `PGID` | `1000` | User and group the backend runs as; match the owner of `DATA_PATH` |
 | `TZ` | `Europe/Zurich` | Container timezone |
 | `GOOGLE_MAPS_API_KEY` | unset | Enables routes from Google Maps links; see below |
+| `MAX_IMPORT_MB` | `500` | Largest export file the backend accepts on import |
 
 Only the frontend publishes a port; it serves the page and proxies `/api` to
 the backend on an internal network. Locally, `docker-compose.override.yml`
 also publishes the backend on port 3000 for debugging. The app has no login,
 so put it behind your reverse proxy's access control if it is reachable from
 outside.
+
+## Moving data between installations
+
+**Settings → Transfer** exports everything to one file
+(`how-high-YYYY-MM-DD.json.gz`): hikes and routes with what they were made
+from, their measurements, marks, ratings, and the settings. Terrain and map
+caches are not included; they are fetched again when needed.
+
+Importing that file elsewhere first shows what it holds and what would
+change, then either adds to what is there (entries both sides have are
+updated from the file; an entry is recognised by the GPX file or route it
+was made from) or replaces everything. The settings in the file can be taken
+or left. The state before an import is saved as a backup export under
+`backups/` in the data folder; the newest three are kept.
+
+Both installations should run the same version. A file from a version that
+measured differently is still accepted, but its entries are measured again
+on arrival.
 
 ## How the score works
 

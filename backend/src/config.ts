@@ -18,6 +18,9 @@ export const config = {
   dbPath: path.join(dataDir, "how-high.db"),
   demDir: path.join(dataDir, "dem"),
   uploadsDir: path.join(dataDir, "uploads"),
+  // Automatic exports written before an import changes anything.
+  backupsDir: path.join(dataDir, "backups"),
+  maxImportBytes: intFromEnv("MAX_IMPORT_MB", 500) * 1024 * 1024,
   maxUploadBytes: intFromEnv("MAX_UPLOAD_MB", 20) * 1024 * 1024,
   // Routes from Google Maps links are only offered when a key is set.
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null,

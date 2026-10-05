@@ -3,6 +3,7 @@
   import { applySettings, fetchSettings, revertSettings, saveSettings, suggestSettings } from "../api.js";
   import type { Disagreement, EntryState, Proposal, Settings, SettingsResponse, Verdict } from "../types.js";
   import { LEVEL_LABEL } from "./levels.js";
+  import TransferPanel from "./TransferPanel.svelte";
 
   let {
     initial,
@@ -525,6 +526,8 @@
     <footer>
       <button type="button" onclick={resetAll}>Reset everything to defaults</button>
     </footer>
+
+    <TransferPanel onimported={() => act("apply", async () => adopt(await fetchSettings()))} />
   {:else if !error}
     <p class="intro">Loading…</p>
   {/if}

@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [svelte()],
   server: {
     proxy: {
-      "/api": "http://localhost:3000",
+      // API_TARGET points the dev server at another backend, e.g. a scratch one for testing.
+      "/api": process.env.API_TARGET ?? "http://localhost:3000",
     },
   },
 });

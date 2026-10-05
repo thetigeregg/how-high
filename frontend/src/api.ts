@@ -1,6 +1,9 @@
 import type {
   AnalysisDetail,
   AnalysisSummary,
+  ImportMode,
+  ImportPreview,
+  ImportSummary,
   Mark,
   MarkCause,
   MarkKind,
@@ -123,4 +126,22 @@ export function applySettings(settings: Settings): Promise<SettingsResponse> {
 export function revertSettings(): Promise<SettingsResponse> {
   const { url, ...init } = postJson("/api/settings/revert");
   return request(url, init);
+}
+
+/** Where the browser downloads the whole library and settings as one file. */
+export const EXPORT_URL = "/api/export";
+
+const withFile = (file: File): RequestInit => {
+  const body = new FormData();
+  body.append("file", file);
+  return { method: "POST", body };
+};
+
+/** What an export file holds and what importing it would do. Changes nothing. */
+export function previewImport(file: File): Promise<ImportPreview> {
+  return request("/api/import/preview", withFile(file));
+}
+
+export function applyImport(file: File, mode: ImportMode, settings: boolean): Promise<ImportSummary> {
+  return request(`/api/import?mode=${mode}&settings=${settings ? 1 : 0}`, withFile(file));
 }

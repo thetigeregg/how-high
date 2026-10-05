@@ -277,3 +277,23 @@ export interface Proposal {
   after: { overFlagged: Disagreement[]; missed: Disagreement[] };
   library: Array<{ id: number; name: string; kind: "hike" | "route"; before: EntryState; after: EntryState }>;
 }
+
+/** What an export file holds and what each way of importing it would do. */
+export interface ImportPreview {
+  file: { exportedAt: string; hikes: number; routes: number; marks: number; measuredDifferently: boolean };
+  here: { entries: number; marks: number };
+  merge: { added: number; updated: number; kept: number };
+  replace: { added: number; removed: number };
+}
+
+export type ImportMode = "merge" | "replace";
+
+export interface ImportSummary {
+  added: number;
+  updated: number;
+  removed: number;
+  marks: number;
+  settings: boolean;
+  /** File name of the export of what was here before, kept on the server. */
+  backup: string;
+}

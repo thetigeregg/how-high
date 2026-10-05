@@ -8,9 +8,9 @@ import { logger } from "../logger.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(__dirname, "migrations");
 
-export function openDatabase(): Database.Database {
+export function openDatabase(dbPath = config.dbPath): Database.Database {
   fs.mkdirSync(config.dataDir, { recursive: true });
-  const db = new Database(config.dbPath);
+  const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   runMigrations(db);
