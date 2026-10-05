@@ -95,6 +95,8 @@ function serialize(row: AnalysisRow) {
     kind: row.kind,
     sourceUrl: row.source_url,
     status: row.status,
+    // Whether the GPX file this was made from is still held and can be downloaded.
+    hasGpx: fs.existsSync(gpxPath(row.id)),
   };
 }
 
@@ -240,6 +242,20 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     if (deleted === 0) return reply.status(404).send({ error: "not found" });
     invalidateReferences();
     return reply.status(204).send();
+  });
+
+  // The GPX file a hike was made from, exactly as it was uploaded.
+  app.get("/api/analyses/:id/gpx", async (request, reply) => {
+    const id = idSchema.safeParse((request.params as { id: string }).id);
+    const row = id.success ? getRow(id.data) : undefined;
+    if (!row || !fs.existsSync(gpxPath(row.id))) return reply.status(404).send({ error: "no GPX file is held for this entry" });
+    // A plain-ASCII name for old clients, and the real one (accents and all) for the rest.
+    const name = (row.name.trim() || "hike").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
+    const ascii = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/"/g, "").trim() || "hike";
+    return reply
+      .header("Content-Type", "application/gpx+xml; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="${ascii}.gpx"; filename*=UTF-8''${encodeURIComponent(`${name}.gpx`)}`)
+      .send(fs.readFileSync(gpxPath(row.id)));
   });
 
   // Measures the hike again from the stored GPX, e.g. to retry map context

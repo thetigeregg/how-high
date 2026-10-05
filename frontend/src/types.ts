@@ -16,6 +16,8 @@ export interface AnalysisSummary {
   sourceUrl: string | null;
   /** Whether it has been done, or is only being considered. */
   status: Status;
+  /** Whether the uploaded GPX file is held and can be downloaded. */
+  hasGpx: boolean;
 }
 
 export type Status = "planned" | "done";

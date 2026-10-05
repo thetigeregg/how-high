@@ -488,7 +488,10 @@
               {r.label}
             </button>
           {/each}
-          <button type="button" class="spaced" disabled={reanalysing} onclick={rerun}>
+          {#if detail.summary.hasGpx}
+            <a class="button spaced" href="/api/analyses/{detail.summary.id}/gpx" download>Download GPX</a>
+          {/if}
+          <button type="button" class:spaced={!detail.summary.hasGpx} disabled={reanalysing} onclick={rerun}>
             {reanalysing ? "Re-analysing…" : "Re-analyse"}
           </button>
           <button type="button" class="danger" onclick={remove}>Delete</button>
@@ -852,8 +855,21 @@
     font-size: 0.85rem;
     cursor: pointer;
   }
-  button:hover {
+  button:hover,
+  a.button:hover {
     border-color: var(--accent);
+  }
+  a.button {
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-size: 0.85rem;
+    text-decoration: none;
+  }
+  a.button.spaced {
+    margin-left: 0.6rem;
   }
   button.active {
     border-color: var(--accent);
