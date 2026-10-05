@@ -290,3 +290,69 @@ describe("route lines that stray from the map", () => {
     expect(score(asLeg("hike"), DEFAULT_PARAMS).points[60].score).toBeGreaterThan(50);
   });
 });
+
+describe("which side the drop is on", () => {
+  // Reversals are found from real coordinates, so this test places its metres on the globe.
+  const scaleX = 111_320 * Math.cos((47 * Math.PI) / 180);
+  const globe: Projection = {
+    name: "test",
+    forward: (lon, lat) => [(lon - 9) * scaleX, (lat - 47) * 111_320],
+    inverse: (x, y) => [9 + x / scaleX, 47 + y / 111_320],
+  };
+  const ride = (terrain: Terrain, track = northbound(0)) => ({
+    ...measure(terrain, track, globe),
+    profile: "road" as const,
+    legs: [{ mode: "rail" as const, label: "Train", startM: 0, endM: track[track.length - 1].dist }],
+  });
+  const sides = (terrain: Terrain, track?: ReturnType<typeof northbound>) => score(ride(terrain, track)).legs[0].sides!;
+
+  it("measures drops for each side on its own", () => {
+    // Heading north with the ground falling away to the east: all of it on the right.
+    const m = middle(measureTrack(ground((x) => 1000 - Math.max(0, x)), northbound(0)))!;
+    expect(m.dropRight100).toBeCloseTo(100, 0);
+    expect(m.dropLeft100).toBe(0);
+    expect(m.dropRight10).toBeCloseTo(10, 0);
+    expect(m.dropLeft10).toBe(0);
+  });
+
+  it("recommends the side away from the drop", () => {
+    const [summary] = sides(ground((x) => 1000 - Math.max(0, x)));
+    expect(summary.rightM).toBeGreaterThan(300);
+    expect(summary.leftM).toBe(0);
+    expect(summary.sit).toBe("left");
+    // The same ground travelled the other way has the drop on the left.
+    expect(sides(ground((x) => 1000 - Math.max(0, x)), resample([[0, 200], [0, -200]], 5))[0].sit).toBe("right");
+  });
+
+  it("has no better side on a ridge, and no preference on flat ground", () => {
+    const ridge = sides(ground((x) => 1000 - Math.abs(x)))[0];
+    expect(ridge.bothM).toBeGreaterThan(300);
+    expect(ridge.sit).toBe("none");
+    expect(sides(ground(() => 1000))[0]).toMatchObject({ leftM: 0, rightM: 0, bothM: 0, sit: "either" });
+  });
+
+  it("starts a new stretch where a train reverses", () => {
+    // In to a terminus heading north, then back out heading south on the next track over.
+    const terminus = [...resample([[0, -600], [0, 0]], 5), ...resample([[4, 0], [4, -600]], 5)].map((p, i) => ({ ...p, dist: i * 5 }));
+    const result = sides(ground((x) => 1000 - Math.max(0, x - 2)), terminus);
+    expect(result).toHaveLength(2);
+    expect(Math.abs(result[0].endM - 600)).toBeLessThan(250);
+    // The drop lies to the east throughout: on the right going in, on the left coming out.
+    expect(result[0].sit).toBe("left");
+    expect(result[1].sit).toBe("right");
+  });
+
+  it("does not take a horseshoe curve for a reversal", () => {
+    // North, round a half circle of 60 m radius, and back south 120 m further east.
+    const curve = Array.from({ length: 19 }, (_, k): [number, number] => {
+      const angle = Math.PI - (k / 18) * Math.PI;
+      return [60 + 60 * Math.cos(angle), 60 * Math.sin(angle)];
+    });
+    const horseshoe = resample([[0, -400], ...curve, [120, -400]], 5);
+    expect(sides(ground(() => 1000), horseshoe)).toHaveLength(1);
+  });
+
+  it("gives no side advice for stretches on foot", () => {
+    expect(score(measure(ground((x) => 1000 - x), northbound(0), identity)).legs[0].sides).toBeUndefined();
+  });
+});

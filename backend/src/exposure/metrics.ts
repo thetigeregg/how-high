@@ -17,6 +17,11 @@ export interface PointMetrics {
   drop100: number;
   dropLeft30: number;
   dropRight30: number;
+  /** The 10 m and 100 m drops for each side on its own. */
+  dropLeft10: number;
+  dropRight10: number;
+  dropLeft100: number;
+  dropRight100: number;
   /** Slope of the path itself; positive when climbing in the direction of travel. */
   trackGradeDeg: number;
   /** How far the ground dips under a straight span of track (bridge-like), else 0. */
@@ -120,7 +125,8 @@ export function measurePoint(
   const nx = -ty;
   const ny = tx;
 
-  let drop10 = 0, drop30 = 0, drop100 = 0, dropLeft30 = 0, dropRight30 = 0;
+  // Largest drop within 10, 30 and 100 m, kept separately for the left and right side.
+  const drops = { left: [0, 0, 0], right: [0, 0, 0] };
   const step = terrain.cellSize;
   for (let k = 1; k < RAY_COUNT; k++) {
     // Straight ahead and straight behind are the path itself, not exposure.
@@ -128,7 +134,7 @@ export function measurePoint(
     const angle = (k / RAY_COUNT) * 2 * Math.PI;
     const dx = tx * Math.cos(angle) - ty * Math.sin(angle);
     const dy = tx * Math.sin(angle) + ty * Math.cos(angle);
-    const left = k < RAY_COUNT / 2;
+    const side = k < RAY_COUNT / 2 ? drops.left : drops.right;
     let fallsAway = false;
     for (let d = step; d <= RAY_LENGTH_M; d += step) {
       const z = terrain.elevation(x + dx * d, y + dy * d);
@@ -137,13 +143,9 @@ export function measurePoint(
       // A far drop only counts if the ground is already falling away nearby;
       // a cliff beyond 30 m of flat ground is not exposure.
       if (d <= 30 && drop >= FAR_DROP_MIN_NEAR_M) fallsAway = true;
-      if (drop > drop100 && (d <= 30 || fallsAway)) drop100 = drop;
-      if (d <= 30) {
-        if (drop > drop30) drop30 = drop;
-        if (left && drop > dropLeft30) dropLeft30 = drop;
-        if (!left && drop > dropRight30) dropRight30 = drop;
-        if (d <= 10 && drop > drop10) drop10 = drop;
-      }
+      if (drop > side[2] && (d <= 30 || fallsAway)) side[2] = drop;
+      if (d <= 30 && drop > side[1]) side[1] = drop;
+      if (d <= 10 && drop > side[0]) side[0] = drop;
     }
   }
 
@@ -153,11 +155,15 @@ export function measurePoint(
     crossSlopeDeg: Math.atan(Math.abs(g[0] * nx + g[1] * ny)) / DEG,
     fallLeft: fallHeight(terrain, x, y, z0, nx, ny, params),
     fallRight: fallHeight(terrain, x, y, z0, -nx, -ny, params),
-    drop10,
-    drop30,
-    drop100,
-    dropLeft30,
-    dropRight30,
+    drop10: Math.max(drops.left[0], drops.right[0]),
+    drop30: Math.max(drops.left[1], drops.right[1]),
+    drop100: Math.max(drops.left[2], drops.right[2]),
+    dropLeft30: drops.left[1],
+    dropRight30: drops.right[1],
+    dropLeft10: drops.left[0],
+    dropRight10: drops.right[0],
+    dropLeft100: drops.left[2],
+    dropRight100: drops.right[2],
   };
 }
 

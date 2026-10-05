@@ -20,7 +20,18 @@
   import SectionList from "./lib/SectionList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import Upload from "./lib/Upload.svelte";
-  import type { AnalysisDetail, AnalysisSummary, Mark, MarkKind, Range, Rating, Status, Verdict } from "./types.js";
+  import type {
+    AnalysisDetail,
+    AnalysisSummary,
+    Leg,
+    Mark,
+    MarkKind,
+    Range,
+    Rating,
+    SideSummary,
+    Status,
+    Verdict,
+  } from "./types.js";
 
   let analyses = $state<AnalysisSummary[]>([]);
   let detail = $state<AnalysisDetail | null>(null);
@@ -121,6 +132,21 @@
       await updateAnalysis(id, { status });
       await refresh(id);
     });
+  }
+
+  /** Where the drops are along one stretch of a ride, and what follows from it. */
+  function sideText(leg: Leg, side: SideSummary): string {
+    if (side.sit === "either") return "Nothing flagged; either side is fine.";
+    const parts = [
+      side.rightM > 0 ? `on the right for ${km(side.rightM)}` : "",
+      side.leftM > 0 ? `on the left for ${km(side.leftM)}` : "",
+      side.bothM > 0 ? `on both sides for ${km(side.bothM)}` : "",
+    ].filter(Boolean);
+    const where = `Drops are ${parts.join(", ")}.`;
+    if (side.sit === "none") return `No better side. ${where}`;
+    // For a car the choice of seat is rarely open, so it is described rather than advised.
+    if (leg.mode === "drive") return `Drops are mostly on the ${side.sit === "left" ? "right" : "left"}. ${where}`;
+    return `Sit on the ${side.sit}. ${where}`;
   }
 
   const VERDICT_WORD: Record<MarkKind, string> = {
@@ -326,6 +352,29 @@
                 </li>
               {/each}
             </ol>
+            {#if result.legs.some((leg) => leg.sides)}
+              <div class="sides">
+                <strong>Which side the drops are on</strong>
+                <ul>
+                  {#each result.legs as leg}
+                    {#each leg.sides ?? [] as side, i}
+                      <li>
+                        <button type="button" class="quiet" onclick={() => (selection = { startM: side.startM, endM: side.endM })}>
+                          {leg.label}{(leg.sides?.length ?? 0) > 1
+                            ? `, ${i === 0 ? "up to" : "after the train reverses at"} km ${((i === 0 ? side.endM : side.startM) / 1000).toFixed(1)}`
+                            : ""}
+                        </button>
+                        <span>{sideText(leg, side)}</span>
+                      </li>
+                    {/each}
+                  {/each}
+                </ul>
+                <span class="basis">
+                  Left and right are as you face the direction of travel. Tunnels are left out.
+                  {#if result.legs.some((leg) => leg.mode === "bus")}In a bus the right-hand seats are also nearer the edge of the road.{/if}
+                </span>
+              </div>
+            {/if}
             <p class="note">
               This is the route Google suggests now; it can differ from the one shown when the link was shared. Roads
               and railways are scored from the terrain beside them: guardrails and which side you sit on are not known.
@@ -637,6 +686,38 @@
   .verdict.fine {
     border-left-color: #0ca30c;
   }
+  .sides {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.7rem;
+    font-size: 0.9rem;
+  }
+  .sides ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .sides li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.1rem 0.6rem;
+  }
+  .sides button {
+    padding: 0;
+    color: var(--text);
+    font-weight: 600;
+    font-size: inherit;
+    text-align: left;
+  }
+  .sides li span {
+    color: var(--text-muted);
+  }
+  .sides .basis,
   .verdict .basis {
     color: var(--text-muted);
     font-size: 0.8rem;

@@ -37,6 +37,19 @@ export interface Leg {
   label: string;
   startM: number;
   endM: number;
+  /** For rides: which side the drops are on, per stretch between reversals of direction. */
+  sides?: SideSummary[];
+}
+
+export interface SideSummary {
+  startM: number;
+  endM: number;
+  /** Flagged length with the drop on the left only, the right only, or both sides. */
+  leftM: number;
+  rightM: number;
+  bothM: number;
+  /** Side to sit on, relative to the direction of travel; 'either' when nothing is flagged, 'none' when neither is better. */
+  sit: "left" | "right" | "either" | "none";
 }
 
 export interface PointMetrics {

@@ -6,6 +6,7 @@ import { DEFAULT_MEASURE, measureTrack, type MeasureParams, type PointMetrics } 
 import {
   adjustScore,
   DEFAULT_PARAMS,
+  scoreSide,
   findRuns,
   LEVELS,
   levelOf,
@@ -102,8 +103,9 @@ export interface Analysis {
  * 2: forests mapped as multipolygons are no longer missed.
  * 3: train rides follow mapped track instead of the routing service's line.
  * 4: incomplete answers from the map servers are no longer used.
+ * 5: the 10 m and 100 m drops are measured for each side separately.
  */
-export const MEASURE_VERSION = 4;
+export const MEASURE_VERSION = 5;
 
 /** How a stretch is travelled. Ferries are carried along but never scored. */
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
@@ -116,6 +118,27 @@ export interface Leg {
   label: string;
   startM: number;
   endM: number;
+  /**
+   * For rides: which side the drops are on, per stretch between reversals of
+   * direction. Set when scoring; absent for stretches on foot.
+   */
+  sides?: SideSummary[];
+}
+
+/** Which side of the vehicle the exposure is on along one stretch. */
+export interface SideSummary {
+  startM: number;
+  endM: number;
+  /** Flagged length with the drop on the left only, the right only, or on both sides (bridges, ridges). */
+  leftM: number;
+  rightM: number;
+  bothM: number;
+  /**
+   * The side to sit on, relative to the direction of travel: the one away
+   * from most of the drops. 'either' when nothing is flagged, 'none' when
+   * neither side is clearly better.
+   */
+  sit: "left" | "right" | "either" | "none";
 }
 
 /** The kind of mapped way each leg mode is matched against; null for none. */
@@ -324,10 +347,79 @@ export function measurePoints(
   });
 }
 
+/** A side needs this much flagged length before it is worth recommending the other. */
+const SIDE_MIN_M = 200;
+/** ...and this many times more than the other side. */
+const SIDE_RATIO = 2;
+// A train reversing at a terminus turns round on the spot: two points this
+// far apart along the track end up close together, heading opposite ways.
+// The span is kept short so that a horseshoe curve, where a mountain railway
+// also comes back on itself but over a few hundred metres, is not mistaken for one.
+const REVERSAL_SPAN_M = 60;
+const REVERSAL_MAX_CHORD = 0.5;
+
+/** Indexes within a rail leg where the train reverses its direction of travel. */
+function reversals(measurement: Measurement, first: number, last: number): number[] {
+  const { points, spacingM } = measurement;
+  const half = Math.round(REVERSAL_SPAN_M / 2 / spacingM);
+  const found: number[] = [];
+  for (let i = first + half; i + half <= last; i++) {
+    const a = points[i - half];
+    const b = points[i + half];
+    const chord = Math.hypot((a.lat - b.lat) * 111_320, (a.lon - b.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180));
+    const opposed = a.heading[0] * b.heading[0] + a.heading[1] * b.heading[1] < -0.8;
+    if (opposed && chord < REVERSAL_MAX_CHORD * REVERSAL_SPAN_M) {
+      found.push(i);
+      i += Math.round(200 / spacingM); // one reversal, not a run of detections around it
+    }
+  }
+  return found;
+}
+
+/**
+ * Sums up, for one ride, how much flagged length has its drop on each side.
+ * Left and right are relative to the direction of travel, so the leg is cut
+ * where a train reverses: after that, the same seat faces the other side.
+ */
+function summariseSides(measurement: Measurement, scored: AnalysedPoint[], leg: Leg, params: ScoreParams): SideSummary[] {
+  const { spacingM } = measurement;
+  const first = Math.round(leg.startM / spacingM);
+  const last = Math.min(scored.length - 1, Math.round(leg.endM / spacingM));
+  const cuts = leg.mode === "rail" ? reversals(measurement, first, last) : [];
+  const flagged = params.thresholds[0];
+
+  const summaries: SideSummary[] = [];
+  const bounds = [first, ...cuts, last];
+  for (let b = 0; b + 1 < bounds.length; b++) {
+    let leftM = 0, rightM = 0, bothM = 0;
+    for (let i = bounds[b]; i <= bounds[b + 1]; i++) {
+      const p = scored[i];
+      if (!p.metrics || p.score === null || p.context?.tunnel) continue;
+      const left = adjustScore(scoreSide(p.metrics, "left", params), p.context, params) >= flagged;
+      const right = adjustScore(scoreSide(p.metrics, "right", params), p.context, params) >= flagged;
+      // On a bridge the view down is the same from either window.
+      const bridge = p.score >= flagged && (p.context?.bridge === true || p.metrics.bridgeGap > 0);
+      if (bridge || (left && right)) bothM += spacingM;
+      else if (left) leftM += spacingM;
+      else if (right) rightM += spacingM;
+    }
+    const sit =
+      leftM + rightM + bothM < SIDE_MIN_M
+        ? "either"
+        : rightM >= SIDE_MIN_M && rightM >= SIDE_RATIO * leftM
+          ? "left"
+          : leftM >= SIDE_MIN_M && leftM >= SIDE_RATIO * rightM
+            ? "right"
+            : "none";
+    summaries.push({ startM: bounds[b] * spacingM, endM: bounds[b + 1] * spacingM, leftM, rightM, bothM, sit });
+  }
+  return summaries;
+}
+
 /** Stand-in measurements for a no-go point that has no terrain data. */
 const FLAT: PointMetrics = {
   elevation: 0, slopeDeg: 0, crossSlopeDeg: 0, fallLeft: 0, fallRight: 0, drop10: 0, drop30: 0, drop100: 0,
-  dropLeft30: 0, dropRight30: 0, trackGradeDeg: 0, bridgeGap: 0,
+  dropLeft30: 0, dropRight30: 0, dropLeft10: 0, dropRight10: 0, dropLeft100: 0, dropRight100: 0, trackGradeDeg: 0, bridgeGap: 0,
 };
 
 export interface ScoreOptions {
@@ -415,7 +507,11 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     mapContext: measurement.mapContext,
     thresholds: params.thresholds,
     profile: measurement.profile ?? "hike",
-    legs,
+    legs: legs.map((leg) =>
+      TRAVEL_KIND[leg.mode] === "road" || TRAVEL_KIND[leg.mode] === "rail"
+        ? { ...leg, sides: summariseSides(measurement, points, leg, params) }
+        : leg,
+    ),
     summary: {
       maxScore,
       level: sections.reduce<Level>((worst, s) => (LEVELS.indexOf(s.level) > LEVELS.indexOf(worst) ? s.level : worst), "green"),

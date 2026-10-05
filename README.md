@@ -87,6 +87,12 @@ length. Cable cars, gondolas, chairlifts, funiculars and rack railways are
 rated Severe outright; each can be switched off in Settings. Rack railways
 are only recognised where OpenStreetMap marks the rack rail.
 
+For each ride the app also says which side the drops are on, relative to
+the direction of travel, and which side to sit on when one is clearly
+better. Bridges count as both sides, tunnels are left out, and a train leg is
+split where the train reverses. It cannot know which way the seats face or
+whether you get to choose one.
+
 To enable links, create a Google Cloud project with billing, enable the
 **Routes API**, create an API key restricted to that API, and set
 `GOOGLE_MAPS_API_KEY`. Without it the link field is hidden and everything

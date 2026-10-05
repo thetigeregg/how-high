@@ -124,6 +124,25 @@ export function scorePoint(m: PointMetrics, params: ScoreParams = DEFAULT_PARAMS
   return Math.min(100, score);
 }
 
+/**
+ * Exposure from one side only, as someone sitting by that window would have
+ * it: the fall and drops on that side, and the side slope if that is the side
+ * the ground falls to. Ridges, path steepness and bridges are left out; a
+ * bridge is open on both sides and is handled by the caller.
+ */
+export function scoreSide(m: PointMetrics, side: "left" | "right", params: ScoreParams = DEFAULT_PARAMS): number {
+  const left = side === "left";
+  const worst = Math.max(
+    ramp(left ? m.fallLeft : m.fallRight, params.fallHeightM),
+    ramp(left ? m.dropLeft10 : m.dropRight10, params.drop10M),
+    ramp(left ? m.dropLeft30 : m.dropRight30, params.drop30M),
+    ramp(left ? m.dropLeft100 : m.dropRight100, params.drop100M),
+  );
+  const fallsThisWay = left ? m.dropLeft30 >= m.dropRight30 : m.dropRight30 >= m.dropLeft30;
+  const slope = fallsThisWay ? ramp(m.crossSlopeDeg, params.crossSlopeDeg) : 0;
+  return 100 * (params.dropWeight * worst + (1 - params.dropWeight) * slope);
+}
+
 export function levelOf(score: number, params: ScoreParams = DEFAULT_PARAMS): Level {
   const [yellow, orange, red] = params.thresholds;
   if (score >= red) return "red";
