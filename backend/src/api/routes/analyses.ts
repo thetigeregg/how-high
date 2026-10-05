@@ -5,7 +5,14 @@ import { z } from "zod";
 import { config } from "../../config.js";
 import { measureGpx, score } from "../../exposure/analyze.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
-import { gpxPath, loadAnalysis, remeasure } from "../../hikes.js";
+import {
+  annotateSections,
+  gpxPath,
+  invalidateReferences,
+  loadAnalysis,
+  remeasure,
+  retryContextLater,
+} from "../../hikes.js";
 import { loadSettings } from "../../settings.js";
 
 const patchSchema = z.object({
@@ -94,7 +101,9 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     }
 
     const settings = loadSettings(app.db);
-    const measurement = await measureGpx(gpx, settings.measure);
+    // Map context gets only a few seconds here; if it is not there in time the
+    // hike is stored without it and completed in the background.
+    const measurement = await measureGpx(gpx, settings.measure, true);
     const analysis = score(measurement, settings.score);
     const name = analysis.name ?? path.basename(upload.filename, path.extname(upload.filename));
     const { lastInsertRowid } = app.db
@@ -116,6 +125,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     // The original file is kept so hikes can be re-scored when the model changes.
     fs.mkdirSync(config.uploadsDir, { recursive: true });
     fs.writeFileSync(gpxPath(id), xml);
+    if (!measurement.mapContext) retryContextLater(app.db, id);
 
     return reply.status(201).send(serialize(getRow(id)!));
   });
@@ -123,14 +133,16 @@ export function registerAnalysesRoute(app: FastifyInstance) {
   app.get("/api/analyses/:id", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });
-    const analysis = await loadAnalysis(app.db, id.data);
+    const settings = loadSettings(app.db);
+    const analysis = await loadAnalysis(app.db, id.data, settings);
     if (!analysis) return reply.status(409).send({ error: "this hike has no stored GPX to measure again; upload it anew" });
     // Read after loading: measuring again refreshes the summary columns.
     const row = getRow(id.data)!;
     const marks = app.db
       .prepare("SELECT * FROM marks WHERE analysis_id = ? ORDER BY start_m, id")
       .all(row.id) as MarkRow[];
-    return { summary: serialize(row), marks: marks.map(serializeMark), result: analysis };
+    const sections = await annotateSections(app.db, id.data, analysis, settings);
+    return { summary: serialize(row), marks: marks.map(serializeMark), result: { ...analysis, sections } };
   });
 
   app.post("/api/analyses/:id/marks", async (request, reply) => {
@@ -146,6 +158,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const { lastInsertRowid } = app.db
       .prepare("INSERT INTO marks (analysis_id, kind, start_m, end_m, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(analysis.id, mark.kind, mark.startM, mark.endM, mark.note || null, new Date().toISOString());
+    invalidateReferences();
     const row = app.db.prepare("SELECT * FROM marks WHERE id = ?").get(lastInsertRowid) as MarkRow;
     return reply.status(201).send(serializeMark(row));
   });
@@ -159,6 +172,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
         ? app.db.prepare("DELETE FROM marks WHERE id = ? AND analysis_id = ?").run(markId.data, id.data).changes
         : 0;
     if (deleted === 0) return reply.status(404).send({ error: "not found" });
+    invalidateReferences();
     return reply.status(204).send();
   });
 
@@ -181,7 +195,10 @@ export function registerAnalysesRoute(app: FastifyInstance) {
       return reply.status(400).send({ error: "invalid body", details: parsed.error.flatten() });
     }
     const patch = parsed.data;
-    if (patch.name !== undefined) app.db.prepare("UPDATE analyses SET name = ? WHERE id = ?").run(patch.name, id.data);
+    if (patch.name !== undefined) {
+      app.db.prepare("UPDATE analyses SET name = ? WHERE id = ?").run(patch.name, id.data);
+      invalidateReferences();
+    }
     if (patch.rating !== undefined) {
       app.db.prepare("UPDATE analyses SET rating = ? WHERE id = ?").run(patch.rating, id.data);
     }
@@ -192,6 +209,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data)) return reply.status(404).send({ error: "not found" });
     app.db.prepare("DELETE FROM analyses WHERE id = ?").run(id.data);
+    invalidateReferences();
     fs.rmSync(gpxPath(id.data), { force: true });
     return reply.status(204).send();
   });

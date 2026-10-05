@@ -53,6 +53,15 @@ export interface AnalysedPoint {
   metrics: PointMetrics | null;
 }
 
+/** A stretch you marked, on this or another hike. */
+export interface ReferenceLink {
+  analysisId: number;
+  name: string;
+  kind: MarkKind;
+  startM: number;
+  endM: number;
+}
+
 export interface Section {
   level: Level;
   startM: number;
@@ -75,6 +84,12 @@ export interface Section {
   maxCrossSlopeDeg: number;
   side: "left" | "right" | "both";
   dropTowards: string;
+  /** Your own verdict on this stretch, if you marked it. */
+  yourMark?: MarkKind | null;
+  /** A marked stretch, here or on another hike, that measures much the same. */
+  similar?: ReferenceLink | null;
+  /** Set when nothing similar is marked but this scores above the hardest stretch you found difficult. */
+  harderThan?: ReferenceLink | null;
   possibleBridge: boolean;
   worst: { dist: number; lon: number; lat: number; elevation: number };
   links: { swisstopo: string | null; google: string };

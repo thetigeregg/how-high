@@ -73,6 +73,7 @@ export interface Section {
   robustScore: number;
   maxFallM: number;
   maxDrop30M: number;
+  maxDrop100M: number;
   maxCrossSlopeDeg: number;
   /** Side of the drop relative to the direction of travel, and its compass bearing. */
   side: "left" | "right" | "both";
@@ -157,7 +158,7 @@ async function prepare(gpx: GpxTrack): Promise<Prepared> {
 
 function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
   let worstIndex = start;
-  let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxCrossSlopeDeg = 0, bridge = false;
+  let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxDrop100M = 0, maxCrossSlopeDeg = 0, bridge = false;
   let known = 0, wooded = 0, wide = 0;
   const context = { forest: false, tunnel: false, bridge: false, wideTrack: false, sacGrade: null as number | null, aided: false, cliff: false };
   for (let i = start; i <= end; i++) {
@@ -178,6 +179,7 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
     robustScore = Math.max(robustScore, p.scoreLow ?? 0);
     maxFallM = Math.max(maxFallM, p.metrics.fallLeft, p.metrics.fallRight);
     maxDrop30M = Math.max(maxDrop30M, p.metrics.drop30);
+    maxDrop100M = Math.max(maxDrop100M, p.metrics.drop100);
     maxCrossSlopeDeg = Math.max(maxCrossSlopeDeg, p.metrics.crossSlopeDeg);
     bridge ||= p.metrics.bridgeGap > 0;
   }
@@ -210,6 +212,7 @@ function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>
     robustScore: Math.round(robustScore),
     maxFallM: Math.round(maxFallM),
     maxDrop30M: Math.round(maxDrop30M),
+    maxDrop100M: Math.round(maxDrop100M),
     maxCrossSlopeDeg: Math.round(maxCrossSlopeDeg),
     side,
     dropTowards,
@@ -364,7 +367,7 @@ export function analyseTrack(
 }
 
 /** Map context around the track, or undefined when OpenStreetMap cannot be reached. */
-async function loadContext(track: TrackPoint[], projection: Projection): Promise<TerrainContext | undefined> {
+async function loadContext(track: TrackPoint[], projection: Projection, quick: boolean): Promise<TerrainContext | undefined> {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of track) {
     minX = Math.min(minX, p.x);
@@ -387,7 +390,7 @@ async function loadContext(track: TrackPoint[], projection: Projection): Promise
   const lons = corners.map((c) => c[0]);
   const lats = corners.map((c) => c[1]);
   try {
-    const elements = await fetchOsm([Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)]);
+    const elements = await fetchOsm([Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)], quick);
     return buildContext(elements, projection, bounds);
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "analysing without map context");
@@ -395,13 +398,21 @@ async function loadContext(track: TrackPoint[], projection: Projection): Promise
   }
 }
 
-/** Everything slow for one GPX track: pick and fetch terrain and map context, then measure. */
-export async function measureGpx(gpx: GpxTrack, params: MeasureParams = DEFAULT_MEASURE): Promise<Measurement> {
+/**
+ * Everything slow for one GPX track: pick and fetch terrain and map context,
+ * then measure. With `quickContext`, map context is given only a few seconds
+ * before the track is measured without it.
+ */
+export async function measureGpx(
+  gpx: GpxTrack,
+  params: MeasureParams = DEFAULT_MEASURE,
+  quickContext = false,
+): Promise<Measurement> {
   const { projection, terrain, track, swiss } = await prepare(gpx);
   return measure(terrain, track, projection, {
     name: gpx.name,
     swiss,
     params,
-    context: await loadContext(track, projection),
+    context: await loadContext(track, projection, quickContext),
   });
 }

@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { config } from "./config.js";
-import { measureGpx, score, type Analysis, type Measurement } from "./exposure/analyze.js";
+import { measureGpx, score, type Analysis, type Measurement, type Section } from "./exposure/analyze.js";
+import { mostSimilar, profileOf, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
 import { logger } from "./logger.js";
@@ -37,7 +38,47 @@ function writeMeasurement(db: Database.Database, id: number, measurement: Measur
 export async function remeasure(db: Database.Database, id: number, settings: Settings): Promise<Measurement> {
   const measurement = await measureGpx(parseGpx(fs.readFileSync(gpxPath(id), "utf-8")), settings.measure);
   writeMeasurement(db, id, measurement, score(measurement, settings.score));
+  invalidateReferences();
   return measurement;
+}
+
+// Minutes to wait before each further attempt to fetch map context for a hike
+// that was measured without it.
+const CONTEXT_RETRY_MIN = [1, 5, 15, 60, 180];
+const awaitingContext = new Set<number>();
+
+/**
+ * Keeps trying in the background to get map context for a hike measured
+ * without it, so a slow or failing OpenStreetMap server never holds up an
+ * upload. Gives up after the last delay; opening Re-analyse still works.
+ */
+export function retryContextLater(db: Database.Database, id: number, attempt = 0) {
+  if (attempt === 0 && awaitingContext.has(id)) return;
+  if (attempt >= CONTEXT_RETRY_MIN.length) {
+    awaitingContext.delete(id);
+    return;
+  }
+  awaitingContext.add(id);
+  setTimeout(
+    async () => {
+      const exists = db.prepare("SELECT 1 FROM analyses WHERE id = ?").get(id) !== undefined;
+      if (!exists || !fs.existsSync(gpxPath(id))) {
+        awaitingContext.delete(id);
+        return;
+      }
+      try {
+        if ((await remeasure(db, id, loadSettings(db))).mapContext) {
+          logger.info({ id }, "map context added on retry");
+          awaitingContext.delete(id);
+          return;
+        }
+      } catch (err) {
+        logger.error({ id, err }, "retry for map context failed");
+      }
+      retryContextLater(db, id, attempt + 1);
+    },
+    CONTEXT_RETRY_MIN[attempt] * 60_000,
+  ).unref();
 }
 
 /**
@@ -61,11 +102,13 @@ export async function loadAnalysis(db: Database.Database, id: number, settings =
 
 /** Brings every hike's cached level and peak score in line with the current settings. */
 export async function refreshAll(db: Database.Database, settings = loadSettings(db)) {
+  invalidateReferences();
   const ids = (db.prepare("SELECT id FROM analyses").all() as Array<{ id: number }>).map((row) => row.id);
   for (const id of ids) {
     try {
       const analysis = await loadAnalysis(db, id, settings);
       if (!analysis) continue;
+      if (!analysis.mapContext) retryContextLater(db, id);
       db.prepare("UPDATE analyses SET level = ?, max_score = ? WHERE id = ?").run(
         analysis.summary.level,
         analysis.summary.maxScore,
@@ -115,4 +158,89 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
     if (mark.kind !== "fine" && level === "green") missed.push({ ...mark, level });
   }
   return { marks: marks.length, overFlagged, missed };
+}
+
+// Every marked stretch with what the model measures there under the current
+// settings. Rebuilt lazily after anything that could change it.
+let references: Reference[] | null = null;
+
+export function invalidateReferences() {
+  references = null;
+}
+
+/** After turning back, the stretch this far ahead is taken as what prompted it. */
+const TURNED_BACK_LOOKAHEAD_M = 300;
+
+interface MarkRow {
+  analysisId: number;
+  name: string;
+  kind: MarkKind;
+  startM: number;
+  endM: number;
+}
+
+async function loadReferences(db: Database.Database, settings: Settings): Promise<Reference[]> {
+  if (references) return references;
+  const marks = db
+    .prepare(
+      `SELECT m.analysis_id AS analysisId, a.name, m.kind, m.start_m AS startM, m.end_m AS endM
+       FROM marks m JOIN analyses a ON a.id = m.analysis_id ORDER BY m.analysis_id, m.start_m`,
+    )
+    .all() as MarkRow[];
+  const analyses = new Map<number, Analysis | null>();
+  const built: Reference[] = [];
+  for (const mark of marks) {
+    if (!analyses.has(mark.analysisId)) analyses.set(mark.analysisId, await loadAnalysis(db, mark.analysisId, settings));
+    const analysis = analyses.get(mark.analysisId);
+    if (!analysis) continue;
+    const endM = mark.kind === "turned_back" ? mark.startM + TURNED_BACK_LOOKAHEAD_M : mark.endM;
+    const profile = profileOf(analysis, mark.startM, endM);
+    if (profile) built.push({ ...mark, endM, profile });
+  }
+  references = built;
+  return built;
+}
+
+const SEVERITY: MarkKind[] = ["fine", "uneasy", "bad", "turned_back"];
+
+export type AnnotatedSection = Section & {
+  /** The user's own verdict on this stretch, if they marked it (the most severe one). */
+  yourMark: MarkKind | null;
+  /** A stretch marked on another hike, or elsewhere on this one, that measures much the same. */
+  similar: ReferenceLink | null;
+  /**
+   * Set when nothing similar is marked but this stretch scores above the
+   * hardest stretch the user found uneasy, bad or turned back at.
+   */
+  harderThan: ReferenceLink | null;
+};
+
+type ReferenceLink = Pick<Reference, "analysisId" | "name" | "kind" | "startM" | "endM">;
+
+const link = ({ analysisId, name, kind, startM, endM }: Reference): ReferenceLink => ({ analysisId, name, kind, startM, endM });
+
+/** Adds to each flagged section what the user's marks say about it or about stretches like it. */
+export async function annotateSections(
+  db: Database.Database,
+  id: number,
+  analysis: Analysis,
+  settings: Settings,
+): Promise<AnnotatedSection[]> {
+  const all = await loadReferences(db, settings);
+  return analysis.sections.map((section) => {
+    const overlaps = (r: Reference) => r.analysisId === id && r.startM <= section.endM && r.endM >= section.startM;
+    const own = all.filter(overlaps);
+    const yourMark = own.reduce<MarkKind | null>(
+      (worst, r) => (worst === null || SEVERITY.indexOf(r.kind) > SEVERITY.indexOf(worst) ? r.kind : worst),
+      null,
+    );
+    const profile = profileOf(analysis, section.startM, section.endM);
+    const others = all.filter((r) => !overlaps(r));
+    const match = profile ? mostSimilar(profile, others, settings.score) : null;
+    const hardest = others
+      .filter((r) => r.kind !== "fine")
+      .reduce<Reference | null>((top, r) => (top === null || r.profile.score > top.profile.score ? r : top), null);
+    const harder = !match && profile && hardest && profile.score > hardest.profile.score ? hardest : null;
+    return { ...section, yourMark, similar: match && link(match), harderThan: harder && link(harder) };
+  });
 }

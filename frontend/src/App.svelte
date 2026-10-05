@@ -46,7 +46,7 @@
     }
   }
 
-  async function select(id: number) {
+  async function select(id: number, then: Range | null = null) {
     selectedId = id;
     // Keeps the open hike across reloads and makes it linkable.
     history.replaceState(null, "", `#${id}`);
@@ -56,7 +56,9 @@
     await run(async () => {
       const loaded = await fetchAnalysis(id);
       // Ignore a slow response for a hike the user has already clicked away from.
-      if (selectedId === id) detail = loaded;
+      if (selectedId !== id) return;
+      detail = loaded;
+      selection = then;
     });
     loading = false;
   }
@@ -160,6 +162,19 @@
     });
   }
 
+  // While the open hike is still waiting for map context, look again now and then.
+  $effect(() => {
+    if (!detail || detail.result.mapContext === true) return;
+    const id = detail.summary.id;
+    const timer = setInterval(async () => {
+      const loaded = await fetchAnalysis(id).catch(() => null);
+      if (!loaded?.result.mapContext || selectedId !== id) return;
+      detail = loaded;
+      analyses = await fetchAnalyses().catch(() => analyses);
+    }, 30_000);
+    return () => clearInterval(timer);
+  });
+
   onMount(() => {
     void run(async () => {
       analyses = await fetchAnalyses();
@@ -197,7 +212,8 @@
           </p>
           {#if result.mapContext !== true}
             <p class="note">
-              Terrain only: forest, bridges and tunnels from OpenStreetMap were not applied. Re-analyse to try again.
+              Terrain only for now: OpenStreetMap could not be reached, so forest, bridges and tunnels are not applied
+              yet. This is retried in the background and the page updates when it succeeds.
             </p>
           {/if}
           {#if result.terrain.confidence === "low"}
@@ -302,6 +318,7 @@
           sections={result.sections}
           selected={selection}
           onselect={(i) => (selection = { startM: result.sections[i].startM, endM: result.sections[i].endM })}
+          onopen={(id, range) => (id === selectedId ? (selection = range) : void select(id, range))}
         />
       </section>
     {:else if loading}

@@ -1,12 +1,28 @@
 <script lang="ts">
-  import type { Range, Section } from "../types.js";
+  import type { MarkKind, Range, Section } from "../types.js";
   import LevelBadge from "./LevelBadge.svelte";
 
   let {
     sections,
     selected,
     onselect,
-  }: { sections: Section[]; selected: Range | null; onselect: (index: number) => void } = $props();
+    onopen,
+  }: {
+    sections: Section[];
+    selected: Range | null;
+    onselect: (index: number) => void;
+    /** Opens a marked stretch on (possibly) another hike. */
+    onopen: (analysisId: number, range: Range) => void;
+  } = $props();
+
+  // How a mark reads in "you marked this …" and "which you marked …".
+  const VERDICT: Record<MarkKind, string> = {
+    fine: "fine",
+    uneasy: "uneasy",
+    bad: "bad",
+    turned_back: "where you turned back",
+  };
+  const verdict = (kind: MarkKind) => (kind === "turned_back" ? VERDICT[kind] : `marked ${VERDICT[kind]}`);
 
   const km = (m: number) => (m / 1000).toFixed(2);
 
@@ -42,6 +58,9 @@
           <th class="num" title="Steepness of the ground across the path">Side slope</th>
           <th>Drop</th>
           <th title="From OpenStreetMap: forest and wide tracks lower the score, tunnels clear it">Context</th>
+          <th title="What your own marks say about this stretch, or about a stretch that measures much the same">
+            Your experience
+          </th>
           <th>Look</th>
         </tr>
       </thead>
@@ -61,6 +80,25 @@
             <td class="num">{s.maxCrossSlopeDeg}°</td>
             <td>{s.side === "both" ? "both sides" : `${s.side}, to ${s.dropTowards}`}</td>
             <td>{contextLabels(s).join(", ")}</td>
+            <td class="experience">
+              {#if s.yourMark}
+                <span>You: {verdict(s.yourMark)}</span>
+              {/if}
+              {#each [{ lead: "Like", ref: s.similar }, { lead: "Scores higher than", ref: s.harderThan }] as { lead, ref }}
+                {#if ref}
+                  <button
+                    type="button"
+                    class="similar"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      onopen(ref.analysisId, { startM: ref.startM, endM: ref.endM });
+                    }}
+                  >
+                    {lead} {ref.name}, km {km(ref.startM)} ({verdict(ref.kind)})
+                  </button>
+                {/if}
+              {/each}
+            </td>
             <td class="links">
               {#if s.links.swisstopo}
                 <a href={s.links.swisstopo} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>swisstopo</a>
@@ -115,6 +153,23 @@
   .links {
     display: flex;
     gap: 0.75rem;
+  }
+  .experience {
+    white-space: normal;
+    min-width: 12rem;
+  }
+  .experience span {
+    display: block;
+  }
+  .similar {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    text-align: left;
+    text-decoration: underline;
+    cursor: pointer;
   }
   a {
     color: var(--accent);
