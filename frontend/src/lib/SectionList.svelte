@@ -4,11 +4,14 @@
 
   let {
     sections,
+    analysisId,
     selected,
     onselect,
     onopen,
   }: {
     sections: Section[];
+    /** The hike these sections belong to, so references to it can say "this hike". */
+    analysisId: number;
     selected: Range | null;
     onselect: (index: number) => void;
     /** Opens a marked stretch on (possibly) another hike. */
@@ -94,7 +97,7 @@
                       onopen(ref.analysisId, { startM: ref.startM, endM: ref.endM });
                     }}
                   >
-                    {lead} {ref.name}, km {km(ref.startM)} ({verdict(ref.kind)})
+                    {lead} km {km(ref.startM)} of {ref.analysisId === analysisId ? "this hike" : ref.name} ({verdict(ref.kind)})
                   </button>
                 {/if}
               {/each}

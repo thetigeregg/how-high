@@ -316,6 +316,7 @@
         <h3>Flagged sections</h3>
         <SectionList
           sections={result.sections}
+          analysisId={detail.summary.id}
           selected={selection}
           onselect={(i) => (selection = { startM: result.sections[i].startM, endM: result.sections[i].endM })}
           onopen={(id, range) => (id === selectedId ? (selection = range) : void select(id, range))}
