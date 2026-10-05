@@ -53,7 +53,7 @@ describe("comparing stretches", () => {
 describe("verdict on a route not done yet", () => {
   // Only the fields the verdict reads matter here.
   const route = (...sections: Array<[robustScore: number, lengthM: number]>) =>
-    ({ profile: "hike", sections: sections.map(([robustScore, lengthM]) => ({ robustScore, lengthM })) }) as never;
+    ({ profile: "hike", sections: sections.map(([robustScore, lengthM], i) => ({ robustScore, lengthM, startM: i * 1000 })) }) as never;
   const marked = (kind: Reference["kind"], score: number): Reference => ({ ...reference(kind, { score }), routeProfile: "hike" });
   const marks = [marked("fine", 38), marked("uneasy", 48), marked("bad", 73), marked("turned_back", 81)];
 
@@ -78,6 +78,25 @@ describe("verdict on a route not done yet", () => {
 
   it("admits when a route falls between what was fine and what was not", () => {
     expect(verdictFor(route([44, 100]), marks)?.tone).toBe("unknown");
+  });
+
+  it("says when the tone comes from a short spot, and how the rest stands", () => {
+    // One 65 m spot at the level of a stretch marked uneasy; everything else is mild.
+    const verdict = verdictFor(route([30, 200], [64, 65], [20, 80]), marks)!;
+    expect(verdict.tone).toBe("difficult");
+    expect(verdict.reference?.kind).toBe("uneasy");
+    expect(verdict.brief).toEqual({ spots: 1, firstAtM: 1000, restTone: "fine" });
+  });
+
+  it("does not call a long difficult stretch a short spot", () => {
+    expect(verdictFor(route([64, 400]), marks)!.brief).toBeNull();
+    expect(verdictFor(route([30, 100]), marks)!.brief).toBeNull();
+  });
+
+  it("notes a short spot beyond everything marked on a route that is difficult anyway", () => {
+    const verdict = verdictFor(route([95, 40], [75, 900]), marks)!;
+    expect(verdict.tone).toBe("beyond");
+    expect(verdict.brief).toMatchObject({ spots: 1, restTone: "difficult" });
   });
 
   it("only judges by marks of the same kind of travel, and says nothing without any", () => {

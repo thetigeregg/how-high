@@ -162,9 +162,35 @@
     fine: "Within what you have found fine",
   };
 
+  // How the route stands apart from its short spots, as the start of a headline and as a closing sentence.
+  const REST_TITLE: Record<Verdict["tone"], string> = {
+    fine: "Mostly within what you have found fine",
+    unknown: "Mostly milder than anything that bothered you",
+    difficult: "Likely to be difficult",
+    beyond: "Harder than anything you have marked",
+  };
+  const REST_TEXT: Record<Verdict["tone"], string> = {
+    fine: "The rest scores no higher than stretches you marked fine.",
+    unknown: "The rest scores above what you marked fine, but below everything that bothered you.",
+    difficult: "The rest still reaches levels that bothered you.",
+    beyond: "The rest is also harder than anything you have marked.",
+  };
+
+  function verdictTitle(verdict: Verdict): string {
+    if (!verdict.brief) return VERDICT_TITLE[verdict.tone];
+    const spots = verdict.brief.spots === 1 ? "one short spot" : `${verdict.brief.spots} short spots`;
+    return `${REST_TITLE[verdict.brief.restTone]}, apart from ${spots}`;
+  }
+
   function verdictText(verdict: Verdict): string {
     const ref = verdict.reference;
     const where = ref ? `km ${(ref.startM / 1000).toFixed(2)} of ${ref.name || "an untitled hike"}, which ${VERDICT_WORD[ref.kind]}` : "";
+    if (verdict.brief) {
+      const metres = `${Math.round(verdict.lengthAtOrAboveM)} m`;
+      const at = `${verdict.brief.spots === 1 ? "at" : "starting at"} km ${(verdict.brief.firstAtM / 1000).toFixed(2)}`;
+      const reach = verdict.tone === "beyond" ? "scores above" : "reaches the level of";
+      return `${metres} ${at} ${reach} ${where}. ${REST_TEXT[verdict.brief.restTone]}`;
+    }
     const length = `${km(verdict.lengthAtOrAboveM)} of this is at or above that level`;
     if (verdict.tone === "beyond") return `Its worst stretch scores above ${where}. ${length}.`;
     if (verdict.tone === "difficult") return `It reaches the level of ${where}. ${length}.`;
@@ -420,8 +446,8 @@
 
       {#if detail.verdict}
         {@const verdict = detail.verdict}
-        <div class="verdict {verdict.tone}">
-          <strong>{VERDICT_TITLE[verdict.tone]}</strong>
+        <div class="verdict {verdict.brief?.restTone ?? verdict.tone}">
+          <strong>{verdictTitle(verdict)}</strong>
           <span>
             {verdictText(verdict)}
             {#if verdict.reference}

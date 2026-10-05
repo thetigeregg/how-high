@@ -26,6 +26,8 @@ export interface Verdict {
   reference: ReferenceLink | null;
   /** Length at or above the reference's score, metres. */
   lengthAtOrAboveM: number;
+  /** Set when only a spot or two reach that level: how many, where the first starts, and how the rest stands. */
+  brief: { spots: number; firstAtM: number; restTone: Verdict["tone"] } | null;
 }
 
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";

@@ -37,12 +37,24 @@ export interface Verdict {
   reference: Reference | null;
   /** Length of this route at or above the reference's score, metres. */
   lengthAtOrAboveM: number;
+  /**
+   * Set when that length is so short that the tone describes a spot or two,
+   * not the route: how many sections it is, where the first starts, and how
+   * the rest of the route stands without them.
+   */
+  brief: { spots: number; firstAtM: number; restTone: Verdict["tone"] } | null;
 }
+
+/** Up to this much at or above the reference level counts as a short spot rather than the character of the route. */
+const BRIEF_M = 150;
 
 /**
  * Judges a route by its flagged sections' "at least" scores, i.e. what holds
  * up even if the line is a few metres off, so one noisy spot does not decide
- * it. Returns null when there are no marks of the same kind to judge by.
+ * it. The tone goes by the worst stretch, however short, because the
+ * stretches that bother someone are often short themselves; when it is only
+ * a spot or two, the verdict says that too. Returns null when there are no
+ * marks of the same kind to judge by.
  */
 export function verdictFor(analysis: Analysis, references: Reference[]): Verdict | null {
   const relevant = references.filter((r) => r.routeProfile === analysis.profile);
@@ -50,20 +62,31 @@ export function verdictFor(analysis: Analysis, references: Reference[]): Verdict
   const byScore = (a: Reference, b: Reference) => a.profile.score - b.profile.score;
   const difficult = relevant.filter((r) => r.kind !== "fine").sort(byScore);
   const fine = relevant.filter((r) => r.kind === "fine").sort(byScore);
-  const peak = Math.max(0, ...analysis.sections.map((s) => s.robustScore));
-  const lengthAtOrAbove = (score: number) =>
-    analysis.sections.filter((s) => s.robustScore >= score).reduce((sum, s) => sum + s.lengthM, 0);
 
-  const hardest = difficult[difficult.length - 1];
-  if (hardest && peak > hardest.profile.score) {
-    return { tone: "beyond", reference: hardest, lengthAtOrAboveM: lengthAtOrAbove(hardest.profile.score) };
-  }
-  // The hardest stretch that bothered them which this route still reaches.
-  const reached = difficult.filter((r) => r.profile.score <= peak).pop();
-  if (reached) return { tone: "difficult", reference: reached, lengthAtOrAboveM: lengthAtOrAbove(reached.profile.score) };
-  const easiestFineAbove = fine.find((r) => r.profile.score >= peak);
-  if (easiestFineAbove) return { tone: "fine", reference: easiestFineAbove, lengthAtOrAboveM: 0 };
-  return { tone: "unknown", reference: fine[fine.length - 1] ?? difficult[0] ?? null, lengthAtOrAboveM: 0 };
+  const judge = (sections: Analysis["sections"]): Omit<Verdict, "brief"> => {
+    const peak = Math.max(0, ...sections.map((s) => s.robustScore));
+    const lengthAtOrAbove = (score: number) =>
+      sections.filter((s) => s.robustScore >= score).reduce((sum, s) => sum + s.lengthM, 0);
+    const hardest = difficult[difficult.length - 1];
+    if (hardest && peak > hardest.profile.score) {
+      return { tone: "beyond", reference: hardest, lengthAtOrAboveM: lengthAtOrAbove(hardest.profile.score) };
+    }
+    // The hardest stretch that bothered them which this route still reaches.
+    const reached = difficult.filter((r) => r.profile.score <= peak).pop();
+    if (reached) return { tone: "difficult", reference: reached, lengthAtOrAboveM: lengthAtOrAbove(reached.profile.score) };
+    const easiestFineAbove = fine.find((r) => r.profile.score >= peak);
+    if (easiestFineAbove) return { tone: "fine", reference: easiestFineAbove, lengthAtOrAboveM: 0 };
+    return { tone: "unknown", reference: fine[fine.length - 1] ?? difficult[0] ?? null, lengthAtOrAboveM: 0 };
+  };
+
+  const verdict = judge(analysis.sections);
+  const level = verdict.reference?.profile.score ?? 0;
+  const troubling = verdict.tone === "beyond" || verdict.tone === "difficult";
+  if (!troubling || verdict.lengthAtOrAboveM > BRIEF_M) return { ...verdict, brief: null };
+  // Only a spot or two reach that level: say so, and say how the route stands without them.
+  const spots = analysis.sections.filter((s) => s.robustScore >= level);
+  const rest = judge(analysis.sections.filter((s) => s.robustScore < level));
+  return { ...verdict, brief: { spots: spots.length, firstAtM: spots[0].startM, restTone: rest.tone } };
 }
 
 /** Sections whose scores differ by more than this are never called similar. */
