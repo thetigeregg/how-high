@@ -26,8 +26,8 @@ export interface ScoreParams {
 
 export const DEFAULT_PARAMS: ScoreParams = {
   fallHeightM: [3, 50],
-  drop10M: [3, 10],
-  drop30M: [8, 25],
+  drop10M: [4, 16],
+  drop30M: [8, 35],
   drop100M: [30, 80],
   crossSlopeDeg: [25, 45],
   trackGradeDeg: [20, 35],
