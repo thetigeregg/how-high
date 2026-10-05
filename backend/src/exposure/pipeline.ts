@@ -4,6 +4,7 @@ import { followTrack } from "../context/railmatch.js";
 import { localProjection, lv95, type Projection } from "../geo/projection.js";
 import type { GpxPoint, GpxTrack } from "../gpx/parse.js";
 import { resample, type TrackPoint } from "../gpx/resample.js";
+import { Cancelled, type JobControls } from "../jobs.js";
 import { logger } from "../logger.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
@@ -161,6 +162,15 @@ function measureBridgeDecks(points: MeasuredPoint[]) {
   }
 }
 
+export interface MeasureOptions {
+  /** Give map context only a few seconds before measuring without it. */
+  quickContext?: boolean;
+  /** Use the global terrain even inside Switzerland. */
+  forceGlobal?: boolean;
+  /** For reporting progress to, and taking a cancellation from, a background job. */
+  controls?: JobControls;
+}
+
 /**
  * Everything slow for one route: fetch terrain and map context, then measure.
  * With `quickContext`, map context is given only a few seconds before the
@@ -169,9 +179,13 @@ function measureBridgeDecks(points: MeasuredPoint[]) {
 export async function measureSource(
   source: RouteSource,
   params: MeasureParams = DEFAULT_MEASURE,
-  quickContext = false,
-  forceGlobal = false,
+  options: MeasureOptions = {},
 ): Promise<Measurement> {
+  const { quickContext = false, forceGlobal = false, controls } = options;
+  const report = controls?.report ?? (() => {});
+  const stopIfCancelled = () => {
+    if (controls?.cancelled()) throw new Cancelled();
+  };
   const all = source.legs.flatMap((leg) => leg.points);
   const swiss = !forceGlobal && all.every(({ lon, lat }) => lon > 5.8 && lon < 10.6 && lat > 45.7 && lat < 47.9);
   const lons = all.map((p) => p.lon);
@@ -189,6 +203,8 @@ export async function measureSource(
       sourceLegs.push(leg);
       continue;
     }
+    stopIfCancelled();
+    report({ stage: `Tracing the track for ${leg.label}` });
     try {
       sourceLegs.push(await onTrack(leg, swiss, quickContext));
     } catch (err) {
@@ -222,7 +238,12 @@ export async function measureSource(
 
   const points: MeasuredPoint[] = [];
   let terrainInfo: Measurement["terrain"] | null = null;
+  const pieces = Math.ceil(track.length / CHUNK_POINTS);
   for (let start = 0; start < track.length; start += CHUNK_POINTS) {
+    const index = start / CHUNK_POINTS;
+    const of = pieces > 1 ? `, piece ${index + 1} of ${pieces}` : "";
+    stopIfCancelled();
+    report({ stage: `Fetching terrain${of}`, done: index, total: pieces });
     const end = Math.min(track.length, start + CHUNK_POINTS);
     const from = Math.max(0, start - CHUNK_OVERLAP);
     const to = Math.min(track.length, end + CHUNK_OVERLAP);
@@ -234,6 +255,7 @@ export async function measureSource(
     terrainInfo ??= { source: terrain.source, cellSize: terrain.cellSize, confidence: swiss ? "high" : "low" };
     // In quick mode one failure is taken as the servers being down: the rest
     // of the route is not held up asking again, and the background retry fills it in.
+    if (!(quickContext && !mapContext)) report({ stage: `Fetching map data${of}` });
     const context: TerrainContext | undefined = quickContext && !mapContext ? undefined : await loadContext(piece, projection, spacing, swiss, quickContext);
     mapContext &&= context !== undefined;
     // Coarse terrain for kilometres around, to measure what can be seen from the route.
@@ -241,14 +263,18 @@ export async function measureSource(
       logger.warn({ err: (err as Error).message }, "measuring without distant terrain; views are left out");
       return undefined;
     });
+    report({ stage: `Measuring${of}` });
+    // Measuring a piece keeps the processor busy; letting other work in first keeps progress requests answered.
+    await new Promise((resolve) => setImmediate(resolve));
     const measured = measurePoints(terrain, piece, projection, context, params, (i) => TRAVEL_KIND[sourceLegs[legOf[from + i]].mode], far);
     points.push(...measured.slice(start - from, end - from));
   }
+  report({ stage: "Finishing", done: pieces, total: pieces });
 
   // Border hikes: where swisstopo has too many gaps, the coarser global data is the better picture.
   if (swiss && source.profile === "hike") {
     const gaps = points.filter((p) => p.metrics === null).length;
-    if (gaps / points.length > MAX_SWISS_GAP_SHARE) return measureSource(source, params, quickContext, true);
+    if (gaps / points.length > MAX_SWISS_GAP_SHARE) return measureSource(source, params, { ...options, forceGlobal: true });
   }
 
   measureBridgeDecks(points);

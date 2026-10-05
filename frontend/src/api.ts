@@ -4,6 +4,7 @@ import type {
   ImportMode,
   ImportPreview,
   ImportSummary,
+  Job,
   Mark,
   MarkCause,
   MarkKind,
@@ -32,7 +33,8 @@ export function fetchAnalysis(id: number): Promise<AnalysisDetail> {
   return request(`/api/analyses/${id}`);
 }
 
-export function uploadGpx(file: File): Promise<AnalysisSummary> {
+/** Starts measuring an uploaded hike in the background. */
+export function uploadGpx(file: File): Promise<Job> {
   const body = new FormData();
   body.append("file", file);
   return request("/api/analyses", { method: "POST", body });
@@ -49,7 +51,8 @@ export function updateAnalysis(
   });
 }
 
-export function reanalyse(id: number): Promise<AnalysisSummary> {
+/** Starts measuring an entry again in the background. */
+export function reanalyse(id: number): Promise<Job> {
   return request(`/api/analyses/${id}/reanalyse`, { method: "POST" });
 }
 
@@ -79,7 +82,7 @@ export function deleteMark(analysisId: number, markId: number): Promise<void> {
 }
 
 /** A route from a shared Google Maps directions link. */
-export function addRoute(url: string): Promise<AnalysisSummary> {
+export function addRoute(url: string): Promise<Job> {
   return request("/api/routes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -144,4 +147,14 @@ export function previewImport(file: File): Promise<ImportPreview> {
 
 export function applyImport(file: File, mode: ImportMode, settings: boolean): Promise<ImportSummary> {
   return request(`/api/import?mode=${mode}&settings=${settings ? 1 : 0}`, withFile(file));
+}
+
+/** Background measuring: what is waiting, running, or has just ended. */
+export async function fetchJobs(): Promise<Job[]> {
+  return (await request<{ jobs: Job[] }>("/api/jobs")).jobs;
+}
+
+/** Cancels a job that is waiting or running, or clears one that has ended. */
+export function dismissJob(id: number): Promise<void> {
+  return request(`/api/jobs/${id}`, { method: "DELETE" });
 }

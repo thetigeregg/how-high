@@ -106,7 +106,12 @@ scored rather than rated on terrain the train never crosses. Google does not acc
 transport, so such a route is fetched stop to stop and joined.
 
 A long route downloads terrain for its whole length the first time, about
-1 MB per km in Switzerland, which can take several minutes.
+1 MB per km in Switzerland, which can take several minutes. Adding and
+re-analysing therefore run in the background: the entry appears in the
+sidebar as pending, with a progress bar counting the roughly 5 km pieces it
+is measured in, and can be cancelled. One is measured at a time and the
+rest wait their turn. Pending entries are held in memory only, so one that
+is interrupted by a restart has to be added again.
 
 Roads and railways have their own set of scoring knobs (**Settings**, "Car,
 bus and train"), which start out more lenient than the hiking ones: you are

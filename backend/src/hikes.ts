@@ -7,6 +7,7 @@ import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.
 import { judgeMark, mostSimilar, profileOf, verdictFor, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
+import type { JobControls } from "./jobs.js";
 import { logger } from "./logger.js";
 import { loadSettings, type Settings } from "./settings.js";
 
@@ -53,8 +54,8 @@ function writeMeasurement(db: Database.Database, id: number, measurement: Measur
 }
 
 /** Measures a hike again from its stored GPX and saves the result. */
-export async function remeasure(db: Database.Database, id: number, settings: Settings): Promise<Measurement> {
-  const measurement = await measureSource(loadSource(id), settings.measure);
+export async function remeasure(db: Database.Database, id: number, settings: Settings, controls?: JobControls): Promise<Measurement> {
+  const measurement = await measureSource(loadSource(id), settings.measure, { controls });
   writeMeasurement(db, id, measurement, scoreWith(measurement, settings));
   invalidateReferences();
   return measurement;

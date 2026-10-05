@@ -299,3 +299,23 @@ export interface ImportSummary {
   /** File name of the export of what was here before, kept on the server. */
   backup: string;
 }
+
+/** A hike or route being measured in the background. */
+export interface Job {
+  id: number;
+  kind: "hike" | "route";
+  label: string;
+  /** The entry being measured again, or null when this adds a new one. */
+  reanalysisOf: number | null;
+  state: "queued" | "running" | "done" | "failed";
+  /** What is happening now, in a few words. */
+  stage: string;
+  /** Pieces finished and pieces in all; both 0 until that is known. */
+  done: number;
+  total: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  /** The entry that resulted, once done. */
+  analysisId: number | null;
+}

@@ -7,6 +7,7 @@ import { gpxSource, measureSource, type RouteSource } from "../../exposure/pipel
 import { parseDirectionsUrl, resolveLink } from "../../google/link.js";
 import { fetchRoute } from "../../google/routes.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
+import { dismiss, enqueue, isBeingReanalysed, listJobs, type JobControls } from "../../jobs.js";
 import {
   annotateSections,
   gpxPath,
@@ -110,13 +111,13 @@ export function registerAnalysesRoute(app: FastifyInstance) {
   });
 
   /**
-   * Measures a new hike or route and stores it. Map context gets only a few
-   * seconds here; if it is not there in time the entry is stored without it
-   * and completed in the background.
+   * Measures a new hike or route and stores it; run as a background job. Map
+   * context gets only a few seconds per piece here; if it is not there in
+   * time the entry is stored without it and completed later.
    */
-  async function create(source: RouteSource, fallbackName: string, original: { gpx: string } | null): Promise<number> {
+  async function create(source: RouteSource, fallbackName: string, original: { gpx: string } | null, controls: JobControls): Promise<number> {
     const settings = loadSettings(app.db);
-    const measurement = await measureSource(source, settings.measure, true);
+    const measurement = await measureSource(source, settings.measure, { quickContext: true, controls });
     const analysis = scoreWith(measurement, settings);
     const { lastInsertRowid } = app.db
       .prepare(
@@ -154,8 +155,12 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     } catch (err) {
       return reply.status(400).send({ error: (err as Error).message });
     }
-    const id = await create(gpxSource(gpx), path.basename(upload.filename, path.extname(upload.filename)), { gpx: xml });
-    return reply.status(201).send(serialize(getRow(id)!));
+    const fallback = path.basename(upload.filename, path.extname(upload.filename));
+    // What is wrong with the file is said at once; the measuring happens in the background.
+    const job = enqueue({ kind: "hike", label: gpx.name ?? fallback, reanalysisOf: null }, (controls) =>
+      create(gpxSource(gpx), fallback, { gpx: xml }, controls),
+    );
+    return reply.status(202).send(job);
   });
 
   // A route from a shared Google Maps directions link.
@@ -171,8 +176,21 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     } catch (err) {
       return reply.status(400).send({ error: (err as Error).message });
     }
-    const id = await create(source, "Route", null);
-    return reply.status(201).send(serialize(getRow(id)!));
+    // The link has been read and Google has answered by now, so a bad link is refused at once.
+    const job = enqueue({ kind: "route", label: source.name ?? "Route", reanalysisOf: null }, (controls) =>
+      create(source, "Route", null, controls),
+    );
+    return reply.status(202).send(job);
+  });
+
+  // Background measuring: what is waiting, running, or has just ended.
+  app.get("/api/jobs", async () => ({ jobs: listJobs() }));
+
+  // Cancels a job that is waiting or running, or clears one that has ended.
+  app.delete("/api/jobs/:jobId", async (request, reply) => {
+    const jobId = idSchema.safeParse((request.params as { jobId: string }).jobId);
+    if (!jobId.success || !dismiss(jobId.data)) return reply.status(404).send({ error: "not found" });
+    return reply.status(204).send();
   });
 
   app.get("/api/analyses/:id", async (request, reply) => {
@@ -258,16 +276,22 @@ export function registerAnalysesRoute(app: FastifyInstance) {
       .send(fs.readFileSync(gpxPath(row.id)));
   });
 
-  // Measures the hike again from the stored GPX, e.g. to retry map context
-  // that was unavailable. The hike's name, rating and marks are kept.
+  // Measures the entry again from what it was made from, as a background job,
+  // e.g. to retry map context that was unavailable. Name, rating and marks are kept.
   app.post("/api/analyses/:id/reanalyse", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data) || !hasSource(id.data)) {
       return reply.status(404).send({ error: "not found" });
     }
-    const measurement = await remeasure(app.db, id.data, loadSettings(app.db));
-    if (!measurement.mapContext) retryContextLater(app.db, id.data);
-    return serialize(getRow(id.data)!);
+    const target = id.data;
+    const row = getRow(target)!;
+    if (isBeingReanalysed(target)) return reply.status(409).send({ error: "this is already being measured again" });
+    const job = enqueue({ kind: row.kind === "route" ? "route" : "hike", label: row.name, reanalysisOf: target }, async (controls) => {
+      const measurement = await remeasure(app.db, target, loadSettings(app.db), controls);
+      if (!measurement.mapContext) retryContextLater(app.db, target);
+      return target;
+    });
+    return reply.status(202).send(job);
   });
 
   app.patch("/api/analyses/:id", async (request, reply) => {

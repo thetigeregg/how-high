@@ -53,7 +53,7 @@
   }}
 >
   {#if busy}
-    Analysing… fetching terrain can take a moment
+    Reading the file…
   {:else}
     <strong>Add a hike</strong>
     <span>Drop a .gpx file here or click to choose</span>
@@ -67,7 +67,7 @@
       <input id="route-link" type="url" placeholder="Paste a Google Maps directions link" bind:value={link} disabled={busy} />
       <button type="submit" disabled={busy || link.trim() === ""}>Add</button>
     </div>
-    {#if busy}<span class="wait">Fetching and analysing… a long route can take a few minutes the first time</span>{/if}
+    {#if busy}<span class="wait">Reading the link and asking Google for the route…</span>{/if}
   </form>
 {:else}
   <p class="wait">Adding routes needs a Google Maps API key; see the README.</p>

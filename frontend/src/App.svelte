@@ -3,6 +3,8 @@
   import {
     addRoute,
     createMark,
+    dismissJob,
+    fetchJobs,
     deleteAnalysis,
     deleteMark,
     fetchAnalyses,
@@ -24,6 +26,7 @@
   import type {
     AnalysisDetail,
     AnalysisSummary,
+    Job,
     Leg,
     Mark,
     MarkCause,
@@ -95,15 +98,57 @@
     loading = false;
   }
 
-  async function add(create: () => Promise<AnalysisSummary>) {
+  // Measuring runs in the background on the server; these are the jobs it has
+  // told us about. Ones started from this page open when they finish.
+  let jobs = $state<Job[]>([]);
+  const startedHere = new Set<number>();
+  const handled = new Set<number>();
+  const pendingHere = $derived(jobs.filter((j) => j.reanalysisOf === null && j.kind === tab && j.state !== "done"));
+  const reanalysis = $derived(detail ? (jobs.find((j) => j.reanalysisOf === detail!.summary.id && j.state !== "done") ?? null) : null);
+
+  async function add(start: () => Promise<Job>) {
     uploading = true;
     await run(async () => {
-      const created = await create();
-      analyses = [created, ...analyses];
-      await select(created.id);
+      const job = await start();
+      startedHere.add(job.id);
+      jobs = [...jobs, job];
+      tab = job.kind;
     });
     uploading = false;
   }
+
+  /** Asks the server how the jobs are getting on, and takes in whatever has finished since last time. */
+  async function pollJobs() {
+    const latest = await fetchJobs().catch(() => null);
+    if (!latest) return;
+    for (const job of latest) {
+      if (job.state !== "done" || handled.has(job.id)) continue;
+      handled.add(job.id);
+      void dismissJob(job.id).catch(() => {});
+      analyses = await fetchAnalyses().catch(() => analyses);
+      if (job.analysisId === null) continue;
+      if (job.reanalysisOf !== null) {
+        if (selectedId === job.reanalysisOf) detail = await fetchAnalysis(job.reanalysisOf).catch(() => detail);
+      } else if (startedHere.has(job.id)) {
+        await select(job.analysisId);
+      }
+    }
+    jobs = latest.filter((job) => job.state !== "done");
+  }
+
+  function dismiss(job: Job) {
+    void run(async () => {
+      await dismissJob(job.id);
+      await pollJobs();
+    });
+  }
+
+  $effect(() => {
+    // Only while something is waiting or running; failures just sit there until dismissed.
+    if (!jobs.some((job) => job.state === "queued" || job.state === "running")) return;
+    const timer = setInterval(pollJobs, 1500);
+    return () => clearInterval(timer);
+  });
 
   function replaceSummary(updated: AnalysisSummary) {
     analyses = analyses.map((a) => (a.id === updated.id ? updated : a));
@@ -315,8 +360,7 @@
     const { id } = detail.summary;
     reanalysing = true;
     await run(async () => {
-      replaceSummary(await reanalyse(id));
-      if (selectedId === id) detail = await fetchAnalysis(id);
+      jobs = [...jobs, await reanalyse(id)];
     });
     reanalysing = false;
   }
@@ -351,6 +395,8 @@
     fetchMeta()
       .then((meta) => (linksAvailable = meta.googleMaps))
       .catch(() => {});
+    // Jobs started before this page was loaded, or from another tab, show up too.
+    void pollJobs();
     void run(async () => {
       analyses = await fetchAnalyses();
       const linked = analyses.find((a) => a.id === Number(location.hash.slice(1)));
@@ -390,6 +436,8 @@
     />
     <HikeLibrary
       analyses={listed}
+      pending={pendingHere}
+      ondismiss={dismiss}
       {selectedId}
       onselect={select}
       empty={tab === "hike" ? "No hikes yet." : "No routes yet."}
@@ -491,8 +539,13 @@
           {#if detail.summary.hasGpx}
             <a class="button spaced" href="/api/analyses/{detail.summary.id}/gpx" download>Download GPX</a>
           {/if}
-          <button type="button" class:spaced={!detail.summary.hasGpx} disabled={reanalysing} onclick={rerun}>
-            {reanalysing ? "Re-analysing…" : "Re-analyse"}
+          <button
+            type="button"
+            class:spaced={!detail.summary.hasGpx}
+            disabled={reanalysing || (reanalysis !== null && reanalysis.state !== "failed")}
+            onclick={rerun}
+          >
+            {reanalysis && reanalysis.state !== "failed" ? "Re-analysing…" : "Re-analyse"}
           </button>
           <button type="button" class="danger" onclick={remove}>Delete</button>
         </div>
@@ -521,6 +574,20 @@
           No forecast yet: there are no marked {detail.summary.kind === "route" ? "routes" : "hikes"} to judge this
           against. Mark how stretches felt on ones you have done.
         </p>
+      {/if}
+
+      {#if reanalysis}
+        {@const job = reanalysis}
+        <div class="rerun" class:failed={job.state === "failed"}>
+          {#if job.state === "failed"}
+            <span role="alert">Measuring again failed: {job.error}</span>
+            <button type="button" class="quiet" onclick={() => dismiss(job)}>Dismiss</button>
+          {:else}
+            <span>Measuring again: {job.stage}</span>
+            <progress max={job.total || 1} value={job.total > 0 ? job.done : undefined} aria-label="Progress measuring again"></progress>
+            <button type="button" class="quiet" onclick={() => dismiss(job)}>Cancel</button>
+          {/if}
+        </div>
       {/if}
 
       <div class="breakdown">
@@ -891,6 +958,26 @@
   }
   button.danger {
     color: var(--error);
+  }
+  .rerun {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.5rem 0.8rem;
+    border: 1px dashed var(--border);
+    border-radius: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+  .rerun.failed {
+    border-color: var(--error);
+    color: var(--error);
+  }
+  .rerun progress {
+    flex: 1 1 8rem;
+    height: 0.4rem;
+    accent-color: var(--accent);
   }
   .breakdown ul {
     display: flex;
