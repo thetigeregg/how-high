@@ -61,10 +61,20 @@ export function decodePolyline(encoded: string): GpxPoint[] {
   return points;
 }
 
-const waypoint = (stop: Stop) =>
-  stop.latLng
-    ? { location: { latLng: { latitude: stop.latLng[0], longitude: stop.latLng[1] } } }
-    : { address: stop.label };
+const at = ([latitude, longitude]: [number, number]) => ({ location: { latLng: { latitude, longitude } } });
+const waypoint = (stop: Stop) => (stop.latLng ? at(stop.latLng) : { address: stop.label });
+
+/**
+ * Everything between the first and the last stop, in order: the stops in
+ * between, and the points the route was dragged through, which the route
+ * must pass without counting as stops.
+ */
+function between(stops: Stop[]) {
+  return stops.flatMap((stop, i) => [
+    ...(i > 0 && i < stops.length - 1 ? [waypoint(stop)] : []),
+    ...(i < stops.length - 1 ? stop.via.map((point) => ({ ...at(point), via: true })) : []),
+  ]);
+}
 
 const short = (label: string) => label.split(",")[0].trim();
 
@@ -111,7 +121,7 @@ async function computeRoute(stops: Stop[], mode: TravelMode): Promise<ApiRoute> 
     body: JSON.stringify({
       origin: waypoint(stops[0]),
       destination: waypoint(stops[stops.length - 1]),
-      intermediates: stops.slice(1, -1).map(waypoint),
+      intermediates: between(stops),
       travelMode: mode,
       // The detailed line: points every 15 m or so, where the default leaves gaps
       // of hundreds of metres that would be bridged by straight lines. Not offered for public transport.
@@ -141,7 +151,8 @@ export async function fetchRoute(directions: Directions, url: string): Promise<R
     // stretch from one stop to the next is asked for on its own and joined.
     const legs: SourceLeg[] = [];
     for (let i = 0; i + 1 < stops.length; i++) {
-      const route = await computeRoute([stops[i], stops[i + 1]], mode);
+      // Google Maps does not let a public-transport route be dragged, so there is nothing to pass through.
+      const route = await computeRoute([{ ...stops[i], via: [] }, stops[i + 1]], mode);
       legs.push(...transitLegs((route.legs ?? []).flatMap((leg) => leg.steps ?? [])));
     }
     if (legs.length === 0) throw new Error("Google returned a route without any line to follow");

@@ -2,6 +2,12 @@
 export interface Stop {
   label: string;
   latLng: [number, number] | null;
+  /**
+   * Points the route was dragged through on its way from this stop to the
+   * next, as [lat, lon]. These are what make a hand-drawn route differ from
+   * the one Google would pick by itself.
+   */
+  via: Array<[number, number]>;
 }
 
 export type TravelMode = "DRIVE" | "BICYCLE" | "WALK" | "TRANSIT";
@@ -22,7 +28,63 @@ function isGoogleMapsHost(host: string): boolean {
 
 function stop(text: string): Stop {
   const match = LAT_LNG.exec(text);
-  return match ? { label: text.trim(), latLng: [Number(match[1]), Number(match[2])] } : { label: text.trim(), latLng: null };
+  return { label: text.trim(), latLng: match ? [Number(match[1]), Number(match[2])] : null, via: [] };
+}
+
+// The "data=" part of a link is a nested list written flat: each item is
+// "!<number><type><value>", and an item of type "m" says how many of the
+// items after it belong inside it.
+interface Item {
+  id: number;
+  type: string;
+  value: string;
+  inside: Item[];
+}
+
+function readItems(tokens: string[], from: number, count: number): Item[] {
+  const items: Item[] = [];
+  for (let i = from; i < from + count && i < tokens.length; ) {
+    const match = /^(\d+)([a-z])(.*)$/.exec(tokens[i]);
+    if (!match) return items;
+    const inside = match[2] === "m" ? readItems(tokens, i + 1, Number(match[3])) : [];
+    items.push({ id: Number(match[1]), type: match[2], value: match[3], inside });
+    i += 1 + (match[2] === "m" ? Number(match[3]) : 0);
+  }
+  return items;
+}
+
+const child = (items: Item[], id: number, type: string) => items.find((item) => item.id === id && item.type === type);
+
+/** A [lat, lon] pair from a block holding "1d<lon>" and "2d<lat>". */
+function latLngIn(items: Item[] | undefined): [number, number] | null {
+  const lon = Number(child(items ?? [], 1, "d")?.value);
+  const lat = Number(child(items ?? [], 2, "d")?.value);
+  return Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : null;
+}
+
+/**
+ * What the data part of a directions link says: for each stop its exact
+ * position and the points the route was dragged through after it, and the
+ * travel mode. Null where the data does not have the expected shape.
+ */
+function readBlob(blob: string): { stops: Array<{ latLng: [number, number] | null; via: Array<[number, number]> }>; mode: string | null } | null {
+  const tokens = blob.replace(/^data=/, "").split("!").filter(Boolean);
+  const directions = child(child(readItems(tokens, 0, tokens.length), 4, "m")?.inside ?? [], 4, "m")?.inside;
+  if (!directions) return null;
+  return {
+    stops: directions
+      .filter((item) => item.id === 1 && item.type === "m")
+      .map((block) => ({
+        latLng: latLngIn(child(block.inside, 2, "m")?.inside),
+        via: block.inside
+          .filter((item) => item.id === 3 && item.type === "m")
+          .flatMap((dragged) => {
+            const at = latLngIn(child(dragged.inside, 1, "m")?.inside);
+            return at ? [at] : [];
+          }),
+      })),
+    mode: child(directions, 3, "e")?.value ?? null,
+  };
 }
 
 /**
@@ -70,13 +132,17 @@ export function parseDirectionsUrl(input: string): Directions {
   }
 
   const stops = names.map(stop);
-  // The blob carries exact coordinates for each stop, which beats looking the
-  // name up again. They are only trusted when there is exactly one per stop.
-  const coordinates = [...blob.matchAll(/!2m2!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/g)];
-  if (coordinates.length === stops.length) {
-    coordinates.forEach((match, i) => (stops[i].latLng ??= [Number(match[2]), Number(match[1])]));
+  // The data carries exact coordinates for each stop, which beats looking the
+  // name up again, and the points a hand-drawn route was dragged through.
+  // It is only trusted when it describes exactly the stops named in the link.
+  const data = readBlob(blob);
+  if (data && data.stops.length === stops.length) {
+    data.stops.forEach((described, i) => {
+      stops[i].latLng ??= described.latLng;
+      stops[i].via = described.via;
+    });
   }
-  return { stops, mode: BLOB_MODES[/!3e(\d)/.exec(blob)?.[1] ?? ""] ?? "DRIVE" };
+  return { stops, mode: BLOB_MODES[data?.mode ?? /!3e(\d)/.exec(blob)?.[1] ?? ""] ?? "DRIVE" };
 }
 
 /** Follows a shared short link (maps.app.goo.gl/…) to the full URL behind it. */
