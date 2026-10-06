@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AnalysisSummary, Job, Rating } from "../types.js";
+  import type { AnalysisSummary, Job } from "../types.js";
   import LevelBadge from "./LevelBadge.svelte";
   import { km } from "./levels.js";
 
@@ -29,7 +29,25 @@
     return seconds < 60 ? ", under a minute left" : `, about ${Math.round(seconds / 60)} min left`;
   }
 
-  const ratingLabel: Record<Rating, string> = { fine: "was fine", uneasy: "was uneasy", bad: "was bad" };
+  type Forecast = NonNullable<NonNullable<AnalysisSummary["insight"]>["forecast"]>;
+  const FORECAST: Record<Forecast["tone"], string> = {
+    fine: "Within what you found fine",
+    unknown: "Between fine and difficult",
+    difficult: "Likely to be difficult",
+    beyond: "Harder than anything marked",
+  };
+  const REST: Record<Forecast["tone"], string> = {
+    fine: "Mostly fine",
+    unknown: "Mostly mild",
+    difficult: "Likely to be difficult",
+    beyond: "Harder than anything marked",
+  };
+  /** The forecast in a few words; a short spot or two is said as such, not as the character of the route. */
+  const forecastLabel = (f: Forecast) =>
+    f.brief ? `${REST[f.brief.restTone]}, ${f.brief.spots === 1 ? "one short spot" : `${f.brief.spots} short spots`}` : FORECAST[f.tone];
+  const toneOf = (f: Forecast) => f.brief?.restTone ?? f.tone;
+  /** Short stretches in metres, longer ones in kilometres. */
+  const extent = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : km(m));
 </script>
 
 {#if pending.length > 0}
@@ -61,11 +79,21 @@
       <li>
         <button type="button" class:selected={a.id === selectedId} onclick={() => onselect(a.id)}>
           <span class="name">{a.name || "Untitled"}</span>
-          <span class="meta">
-            <LevelBadge level={a.level} />
-            <span>{km(a.lengthM)}</span>
+          <!-- First what matters most for this entry: your own verdict if you have done it, the forecast if not. -->
+          {#if a.status === "done" && a.rating}
+            <span class="lead">You found it {a.rating}</span>
+          {:else if a.status === "planned" && a.insight?.forecast}
+            <span class="lead"><span class="tone {toneOf(a.insight.forecast)}"></span>{forecastLabel(a.insight.forecast)}</span>
+          {/if}
+          <span class="meta" title="The worst level that holds even if the route line is a few metres off, and how much of the route is at that level">
+            <LevelBadge level={a.insight?.level ?? a.level} />
+            {#if a.insight && a.insight.extentM > 0}
+              <span>for {extent(a.insight.extentM)}</span>
+              <span>of {km(a.lengthM)}</span>
+            {:else}
+              <span>{km(a.lengthM)}</span>
+            {/if}
             {#if a.status === "planned"}<span class="planned">planned</span>{/if}
-            {#if a.rating}<span>{ratingLabel[a.rating]}</span>{/if}
           </span>
         </button>
       </li>
@@ -147,6 +175,29 @@
     border-radius: 999px;
     font-size: 0.8rem;
     color: var(--text-muted);
+  }
+  .lead {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+  }
+  /* A bar, not a dot, so it is not taken for a level; the words beside it carry the meaning. */
+  .tone {
+    width: 0.25rem;
+    height: 0.9rem;
+    border-radius: 2px;
+    flex-shrink: 0;
+    background: var(--text-faint);
+  }
+  .tone.fine {
+    background: #0ca30c;
+  }
+  .tone.difficult {
+    background: #ec835a;
+  }
+  .tone.beyond {
+    background: #d03b3b;
   }
   .planned {
     padding: 0 0.4rem;

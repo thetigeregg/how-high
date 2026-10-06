@@ -193,8 +193,47 @@ export async function fitAgainstMarks(db: Database.Database, settings = loadSett
 // settings. Rebuilt lazily after anything that could change it.
 let references: Reference[] | null = null;
 
+/**
+ * What the library list says about one entry, beyond what is stored with it:
+ * - `level`: the worst level that holds even if the line is a few metres off
+ *   (by each section's "at least" score), so a line error does not paint the
+ *   whole entry red;
+ * - `extentM`: how much of the route is at that level, since 70 m and 3 km
+ *   of it are different hikes;
+ * - `forecast`: how it stands against the user's marks on others of its kind.
+ */
+export interface Insight {
+  level: Level;
+  extentM: number;
+  forecast: { tone: string; brief: { spots: number; restTone: string } | null } | null;
+}
+
+// Worked out on first asking and kept until something it depends on changes:
+// the settings, any mark, or a measurement.
+const insights = new Map<number, Insight>();
+
 export function invalidateReferences() {
   references = null;
+  insights.clear();
+}
+
+export async function insightFor(db: Database.Database, id: number, settings = loadSettings(db)): Promise<Insight | null> {
+  const known = insights.get(id);
+  if (known) return known;
+  const analysis = await loadAnalysis(db, id, settings);
+  if (!analysis) return null;
+  const levelOfSection = (s: Section) =>
+    s.robustScore >= analysis.thresholds[2] ? "red" : s.robustScore >= analysis.thresholds[1] ? "orange" : s.robustScore >= analysis.thresholds[0] ? "yellow" : "green";
+  const level = analysis.sections.reduce<Level>((worst, s) => (LEVELS.indexOf(levelOfSection(s)) > LEVELS.indexOf(worst) ? levelOfSection(s) : worst), "green");
+  const extentM = level === "green" ? 0 : analysis.sections.filter((s) => levelOfSection(s) === level).reduce((sum, s) => sum + s.lengthM, 0);
+  const verdict = await verdictOn(db, id, analysis, settings);
+  const insight: Insight = {
+    level,
+    extentM,
+    forecast: verdict && { tone: verdict.tone, brief: verdict.brief && { spots: verdict.brief.spots, restTone: verdict.brief.restTone } },
+  };
+  insights.set(id, insight);
+  return insight;
 }
 
 /** After turning back, the stretch this far ahead is taken as what prompted it. */

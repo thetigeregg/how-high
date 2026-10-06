@@ -18,6 +18,17 @@ export interface AnalysisSummary {
   status: Status;
   /** Whether the uploaded GPX file is held and can be downloaded. */
   hasGpx: boolean;
+  /** What the library list shows; null for an entry that cannot be scored. */
+  insight: Insight | null;
+}
+
+export interface Insight {
+  /** The worst level that holds even if the line is a few metres off. */
+  level: Level;
+  /** How much of the route is at that level, metres; 0 when it is Easy throughout. */
+  extentM: number;
+  /** How it stands against your marks on others of its kind; null when there are none to judge by. */
+  forecast: { tone: Verdict["tone"]; brief: { spots: number; restTone: Verdict["tone"] } | null } | null;
 }
 
 export type Status = "planned" | "done";

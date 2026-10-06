@@ -474,6 +474,11 @@
           <p class="meta">
             <LevelBadge level={result.summary.level} />
             <span>peak score {result.summary.maxScore}</span>
+            {#if detail.summary.insight && detail.summary.insight.level !== result.summary.level}
+              <span title="The worst level that holds even if the route line is a few metres off; the library list goes by this">
+                at least {LEVEL_LABEL[detail.summary.insight.level]}
+              </span>
+            {/if}
             <span>{km(result.lengthM)}</span>
             <span>{result.terrain.source}</span>
             {#if detail.summary.sourceUrl}

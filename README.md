@@ -8,6 +8,13 @@ Upload a GPX file and you get the route coloured by exposure on a map, an
 elevation and score profile, and a table of flagged sections. Mark how
 stretches actually felt, and new hikes are compared against those marks.
 
+In the library list each entry leads with what matters most for it: your
+own verdict if you have done it, the forecast if you have not. Below that is
+its worst level and how much of the route is at that level ("Severe for
+70 m of 5.1 km"). That level goes by each section's "at least" score, so a
+route line drawn a few metres off does not turn a whole hike red; the entry's
+own page still shows the raw peak beside it.
+
 Each entry is either planned or done. A planned one gets a forecast: whether
 its worst stretch is within what you have found fine, reaches something that
 bothered you, or goes beyond anything you have marked. Rating or marking an

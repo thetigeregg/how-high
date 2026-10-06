@@ -13,6 +13,7 @@ import { dismiss, enqueue, isBeingReanalysed, listJobs, type JobControls } from 
 import {
   annotateSections,
   gpxPath,
+  insightFor,
   invalidateReferences,
   hasSource,
   loadAnalysis,
@@ -108,9 +109,14 @@ export function registerAnalysesRoute(app: FastifyInstance) {
   const getRow = (id: number) =>
     app.db.prepare(`SELECT ${SUMMARY_COLUMNS} FROM analyses WHERE id = ?`).get(id) as AnalysisRow | undefined;
 
+  /** A row as the page gets it, with what the library list shows worked out for it. */
+  const summarize = async (row: AnalysisRow) => ({ ...serialize(row), insight: await insightFor(app.db, row.id) });
+
   app.get("/api/analyses", async () => {
     const rows = app.db.prepare(`SELECT ${SUMMARY_COLUMNS} FROM analyses ORDER BY id DESC`).all() as AnalysisRow[];
-    return { analyses: rows.map(serialize) };
+    const analyses = [];
+    for (const row of rows) analyses.push(await summarize(row));
+    return { analyses };
   });
 
   /**
@@ -212,7 +218,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     const sections = await annotateSections(app.db, id.data, analysis, settings);
     // A verdict is a forecast, so it is only offered while the route is still ahead.
     const verdict = row.status === "planned" ? await verdictOn(app.db, id.data, analysis, settings) : null;
-    return { summary: serialize(row), marks: marks.map(serializeMark), verdict, result: { ...analysis, sections } };
+    return { summary: await summarize(row), marks: marks.map(serializeMark), verdict, result: { ...analysis, sections } };
   });
 
   app.post("/api/analyses/:id/marks", async (request, reply) => {
@@ -328,7 +334,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     if (patch.status !== undefined) {
       app.db.prepare("UPDATE analyses SET status = ? WHERE id = ?").run(patch.status, id.data);
     }
-    return serialize(getRow(id.data)!);
+    return summarize(getRow(id.data)!);
   });
 
   app.delete("/api/analyses/:id", async (request, reply) => {
