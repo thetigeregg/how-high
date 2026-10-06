@@ -15,7 +15,7 @@ export interface PathInfo {
   funicular: boolean;
 }
 
-/** Which mapped ways a point is matched against, by how the stretch is travelled. */
+/** Which mapped ways a point is matched against, by how the stretch is traveled. */
 export type TravelKind = "foot" | "road" | "rail";
 
 /** Map knowledge the terrain model cannot see, in the metric plane of the analysis. */
@@ -96,7 +96,7 @@ class Mask {
         if (ay === by) continue;
         const low = Math.min(ay, by);
         const high = Math.max(ay, by);
-        // Rows whose centre lies in [low, high).
+        // Rows whose center lies in [low, high).
         const first = Math.max(0, Math.ceil((low - this.minY) / FOREST_CELL_M - 0.5));
         const last = Math.min(this.height - 1, Math.ceil((high - this.minY) / FOREST_CELL_M - 0.5) - 1);
         for (let row = first; row <= last; row++) {

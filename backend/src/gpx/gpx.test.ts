@@ -43,7 +43,7 @@ describe("resample", () => {
 });
 
 describe("GridTerrain", () => {
-  it("interpolates between cell centres and returns NaN outside", () => {
+  it("interpolates between cell centers and returns NaN outside", () => {
     // 3x2 grid of 10 m cells, top-left corner at (0, 20); values rise eastwards.
     const grid = new GridTerrain("t", 10, 0, 20, 3, 2, Float32Array.from([0, 10, 20, 0, 10, 20]));
     expect(grid.elevation(5, 15)).toBeCloseTo(0);

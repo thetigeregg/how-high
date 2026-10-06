@@ -4,7 +4,7 @@ import { followTrack } from "../context/railmatch.js";
 import { localProjection, lv95, type Projection } from "../geo/projection.js";
 import type { GpxPoint, GpxTrack } from "../gpx/parse.js";
 import { resample, type TrackPoint } from "../gpx/resample.js";
-import { Cancelled, type JobControls } from "../jobs.js";
+import { Canceled, type JobControls } from "../jobs.js";
 import { logger } from "../logger.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
@@ -42,7 +42,7 @@ const TERRAIN_BUFFER_M = 250;
 const CONTEXT_BUFFER_M = 100;
 /** Swiss data is abandoned for the global fallback past this share of gaps (hikes only). */
 const MAX_SWISS_GAP_SHARE = 0.02;
-/** Point spacing in metres by profile: [with Swiss terrain, with global terrain]. */
+/** Point spacing in meters by profile: [with Swiss terrain, with global terrain]. */
 const SPACING: Record<Profile, [number, number]> = { hike: [5, 15], road: [10, 20] };
 // Long routes are measured in pieces so only the terrain and map data for one
 // piece is in memory at a time. Pieces overlap so that measurements which
@@ -51,7 +51,7 @@ const SPACING: Record<Profile, [number, number]> = { hike: [5, 15], road: [10, 2
 // box, and a big box over wooded country is more than the map servers answer in time.
 const CHUNK_POINTS = 500;
 const CHUNK_OVERLAP = 20;
-/** Spacing of the simplified line sent to OpenStreetMap, metres. */
+/** Spacing of the simplified line sent to OpenStreetMap, meters. */
 const OSM_LINE_STEP_M = 100;
 /** How far around a train's rough line mapped track is fetched; the real track can loop well away from it. */
 const RAIL_CORRIDOR_M = 3000;
@@ -102,7 +102,7 @@ async function loadContext(
   }
 }
 
-/** Rough distance in metres between two lon/lat points. */
+/** Rough distance in meters between two lon/lat points. */
 function gap(a: GpxPoint, b: GpxPoint): number {
   return Math.hypot((a.lat - b.lat) * 111_320, (a.lon - b.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180));
 }
@@ -183,8 +183,8 @@ export async function measureSource(
 ): Promise<Measurement> {
   const { quickContext = false, forceGlobal = false, controls } = options;
   const report = controls?.report ?? (() => {});
-  const stopIfCancelled = () => {
-    if (controls?.cancelled()) throw new Cancelled();
+  const stopIfCanceled = () => {
+    if (controls?.canceled()) throw new Canceled();
   };
   const all = source.legs.flatMap((leg) => leg.points);
   const swiss = !forceGlobal && all.every(({ lon, lat }) => lon > 5.8 && lon < 10.6 && lat > 45.7 && lat < 47.9);
@@ -203,7 +203,7 @@ export async function measureSource(
       sourceLegs.push(leg);
       continue;
     }
-    stopIfCancelled();
+    stopIfCanceled();
     report({ stage: `Tracing the track for ${leg.label}` });
     try {
       sourceLegs.push(await onTrack(leg, swiss, quickContext));
@@ -242,7 +242,7 @@ export async function measureSource(
   for (let start = 0; start < track.length; start += CHUNK_POINTS) {
     const index = start / CHUNK_POINTS;
     const of = pieces > 1 ? `, piece ${index + 1} of ${pieces}` : "";
-    stopIfCancelled();
+    stopIfCanceled();
     report({ stage: `Fetching terrain${of}`, done: index, total: pieces });
     const end = Math.min(track.length, start + CHUNK_POINTS);
     const from = Math.max(0, start - CHUNK_OVERLAP);
@@ -258,7 +258,7 @@ export async function measureSource(
     if (!(quickContext && !mapContext)) report({ stage: `Fetching map data${of}` });
     const context: TerrainContext | undefined = quickContext && !mapContext ? undefined : await loadContext(piece, projection, spacing, swiss, quickContext);
     mapContext &&= context !== undefined;
-    // Coarse terrain for kilometres around, to measure what can be seen from the route.
+    // Coarse terrain for kilometers around, to measure what can be seen from the route.
     const far = await loadTerrariumTerrain(xy, projection, VIEW_RADIUS_M + 200, FAR).catch((err) => {
       logger.warn({ err: (err as Error).message }, "measuring without distant terrain; views are left out");
       return undefined;

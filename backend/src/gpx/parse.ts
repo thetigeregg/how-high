@@ -28,7 +28,7 @@ function toPoints(raw: RawPoint[]): GpxPoint[] {
 }
 
 /**
- * Reads the line to analyse out of a GPX file: all track segments joined in
+ * Reads the line to analyze out of a GPX file: all track segments joined in
  * order, or the route points when the file has no track.
  */
 export function parseGpx(xml: string): GpxTrack {

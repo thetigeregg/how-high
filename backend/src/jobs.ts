@@ -12,16 +12,16 @@ export interface Progress {
   total?: number;
 }
 
-/** Handed to a task so it can say how far it has got and find out whether it was cancelled. */
+/** Handed to a task so it can say how far it has got and find out whether it was canceled. */
 export interface JobControls {
   report: (progress: Progress) => void;
-  cancelled: () => boolean;
+  canceled: () => boolean;
 }
 
-/** Thrown inside a task to stop it once it sees it has been cancelled. */
-export class Cancelled extends Error {
+/** Thrown inside a task to stop it once it sees it has been canceled. */
+export class Canceled extends Error {
   constructor() {
-    super("cancelled");
+    super("canceled");
   }
 }
 
@@ -46,7 +46,7 @@ export interface Job {
 interface Entry {
   job: Job;
   task: (controls: JobControls) => Promise<number>;
-  cancelled: boolean;
+  canceled: boolean;
 }
 
 /** Finished jobs stay listed this long, so a page that polls is sure to see how they ended. */
@@ -84,12 +84,12 @@ async function pump() {
           if (done !== undefined) job.done = done;
           if (total !== undefined) job.total = total;
         },
-        cancelled: () => current.cancelled,
+        canceled: () => current.canceled,
       });
       job.state = "done";
       job.stage = "Done";
     } catch (err) {
-      if (err instanceof Cancelled) {
+      if (err instanceof Canceled) {
         entries.splice(entries.indexOf(entry), 1);
         continue;
       }
@@ -119,7 +119,7 @@ export function enqueue(
     error: null,
     analysisId: null,
   };
-  entries.push({ job, task, cancelled: false });
+  entries.push({ job, task, canceled: false });
   // Started on the next turn, so the caller gets the job back as queued before any work begins.
   setImmediate(() => void pump());
   return job;
@@ -131,7 +131,7 @@ export function listJobs(): Job[] {
 }
 
 /** Whether an entry is being measured again right now or is waiting to be. */
-export function isBeingReanalysed(analysisId: number): boolean {
+export function isBeingReanalyzed(analysisId: number): boolean {
   return entries.some((e) => e.job.reanalysisOf === analysisId && !finished(e.job));
 }
 
@@ -145,7 +145,7 @@ export function dismiss(id: number): boolean {
   if (index < 0) return false;
   const entry = entries[index];
   if (entry.job.state === "running") {
-    entry.cancelled = true;
+    entry.canceled = true;
     entry.job.stage = "Stopping";
   } else {
     entries.splice(index, 1);

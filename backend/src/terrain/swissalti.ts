@@ -14,7 +14,7 @@ const DOWNLOAD_CONCURRENCY = 6;
 
 const tileDir = path.join(config.demDir, "swissalti3d-2m");
 
-/** swissALTI3D 2 m tiles, keyed by the LV95 kilometre of their south-west corner. */
+/** swissALTI3D 2 m tiles, keyed by the LV95 kilometer of their south-west corner. */
 class SwissTerrain implements Terrain {
   readonly source = "swissALTI3D 2 m (swisstopo)";
   readonly cellSize = CELL_M;

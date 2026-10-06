@@ -69,7 +69,7 @@ const awaitingContext = new Set<number>();
 /**
  * Keeps trying in the background to get map context for a hike measured
  * without it, so a slow or failing OpenStreetMap server never holds up an
- * upload. Gives up after the last delay; opening Re-analyse still works.
+ * upload. Gives up after the last delay; opening Re-analyze still works.
  */
 export function retryContextLater(db: Database.Database, id: number, attempt = 0) {
   if (attempt === 0 && awaitingContext.has(id)) return;
@@ -195,7 +195,7 @@ let references: Reference[] | null = null;
 
 /**
  * What the library list says about one entry, beyond what is stored with it:
- * - `level`: the worst level that holds even if the line is a few metres off
+ * - `level`: the worst level that holds even if the line is a few meters off
  *   (by each section's "at least" score), so a line error does not paint the
  *   whole entry red;
  * - `extentM`: how much of the route is at that level, since 70 m and 3 km

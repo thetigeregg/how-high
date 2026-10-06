@@ -29,9 +29,9 @@ export interface ScoreParams {
   wideTrackFactor: number;
   /** Share of the score that comes from drops; the rest comes from side slope. */
   dropWeight: number;
-  /** Flagged stretches closer together than this are reported as one, metres. */
+  /** Flagged stretches closer together than this are reported as one, meters. */
   mergeGapM: number;
-  /** Isolated blips shorter than this are dropped unless they reach the top level, metres. */
+  /** Isolated blips shorter than this are dropped unless they reach the top level, meters. */
   minLengthM: number;
   /**
    * Open views: how far below you the visible ground must lie, across the
@@ -117,7 +117,7 @@ export interface PointContext {
   sacGrade: number | null;
   aided: boolean;
   cliff: boolean;
-  /** Set where the stretch is travelled by a kind of transport that can be a no-go outright. */
+  /** Set where the stretch is traveled by a kind of transport that can be a no-go outright. */
   noGo: NoGoKind | null;
 }
 

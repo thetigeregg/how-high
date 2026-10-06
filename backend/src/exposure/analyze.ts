@@ -29,8 +29,8 @@ const STREET_VIEW_PITCH = -20;
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
-export interface AnalysedPoint {
-  /** Metres from the start. */
+export interface AnalyzedPoint {
+  /** Meters from the start. */
   dist: number;
   lon: number;
   lat: number;
@@ -44,7 +44,7 @@ export interface AnalysedPoint {
   dropScore: number | null;
   /** The part that comes from how much height the view shows; see `viewDepthM`. */
   viewScore: number | null;
-  /** Depth of the view down across the arc that counts, metres; null where the view was not measured. */
+  /** Depth of the view down across the arc that counts, meters; null where the view was not measured. */
   viewDepthM: number | null;
   /** Lowest and highest score when the track is shifted sideways by GPS error. */
   scoreLow: number | null;
@@ -71,10 +71,10 @@ export interface Section {
     sacGrade: number | null;
     aided: boolean;
     cliff: boolean;
-    /** Set when the stretch is a no-go outright because of how it is travelled. */
+    /** Set when the stretch is a no-go outright because of how it is traveled. */
     noGo: NoGoKind | null;
   } | null;
-  /** Peak score that survives the most favourable GPS shift: "at least this". */
+  /** Peak score that survives the most favorable GPS shift: "at least this". */
   robustScore: number;
   maxFallM: number;
   maxDrop30M: number;
@@ -110,7 +110,7 @@ export interface Analysis {
     noDataM: number;
   };
   sections: Section[];
-  points: AnalysedPoint[];
+  points: AnalyzedPoint[];
 }
 
 /**
@@ -124,15 +124,15 @@ export interface Analysis {
  */
 export const MEASURE_VERSION = 6;
 
-/** The view changes slowly along a route, so it is measured only this often, metres. */
+/** The view changes slowly along a route, so it is measured only this often, meters. */
 const VIEW_EVERY_M = 25;
 
-/** How a stretch is travelled. Ferries are carried along but never scored. */
+/** How a stretch is traveled. Ferries are carried along but never scored. */
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
 /** Which family of settings a route is scored with. */
 export type Profile = "hike" | "road";
 
-/** One stretch of a route travelled in one way, e.g. a single train ride. */
+/** One stretch of a route traveled in one way, e.g. a single train ride. */
 export interface Leg {
   mode: LegMode;
   label: string;
@@ -207,7 +207,7 @@ export interface MeasuredPoint {
   view?: View | null;
 }
 
-function buildSection(points: AnalysedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
+function buildSection(points: AnalyzedPoint[], headings: Array<[number, number]>, start: number, end: number, peak: number, spacing: number, swiss: boolean, params: ScoreParams): Section {
   let worstIndex = start;
   let robustScore = 0, rawMaxScore = 0, maxFallM = 0, maxDrop30M = 0, maxDrop100M = 0, maxCrossSlopeDeg = 0, bridge = false;
   let known = 0, wooded = 0, wide = 0;
@@ -366,12 +366,12 @@ export function measurePoints(
   far?: Terrain,
 ): MeasuredPoint[] {
   const viewEvery = Math.max(1, Math.round(VIEW_EVERY_M / (track.length > 1 ? track[1].dist - track[0].dist : 1)));
-  const centre = measureTrack(terrain, track, 0, params);
+  const center = measureTrack(terrain, track, 0, params);
   const left = measureTrack(terrain, track, params.gpsErrorM, params);
   const right = measureTrack(terrain, track, -params.gpsErrorM, params);
   return track.map((p, i) => {
     const [lon, lat] = projection.inverse(p.x, p.y);
-    const metrics = centre[i];
+    const metrics = center[i];
     return {
       dist: p.dist,
       lon,
@@ -400,7 +400,7 @@ const SIDE_RATIO = 2;
 // A train reversing at a terminus turns round on the spot: two points this
 // far apart along the track end up close together, heading opposite ways.
 // The span is kept short so that a horseshoe curve, where a mountain railway
-// also comes back on itself but over a few hundred metres, is not mistaken for one.
+// also comes back on itself but over a few hundred meters, is not mistaken for one.
 const REVERSAL_SPAN_M = 60;
 const REVERSAL_MAX_CHORD = 0.5;
 
@@ -427,7 +427,7 @@ function reversals(measurement: Measurement, first: number, last: number): numbe
  * Left and right are relative to the direction of travel, so the leg is cut
  * where a train reverses: after that, the same seat faces the other side.
  */
-function summariseSides(measurement: Measurement, scored: AnalysedPoint[], leg: Leg, params: ScoreParams): SideSummary[] {
+function summarizeSides(measurement: Measurement, scored: AnalyzedPoint[], leg: Leg, params: ScoreParams): SideSummary[] {
   const { spacingM } = measurement;
   const first = Math.round(leg.startM / spacingM);
   const last = Math.min(scored.length - 1, Math.round(leg.endM / spacingM));
@@ -462,14 +462,14 @@ function summariseSides(measurement: Measurement, scored: AnalysedPoint[], leg: 
   return summaries;
 }
 
-/** Ground steeper than this is not somewhere a road or track lies; a line drawn on it is a few metres off. */
+/** Ground steeper than this is not somewhere a road or track lies; a line drawn on it is a few meters off. */
 const MAX_PATH_SLOPE_DEG = 45;
 /** ...and is only moved if one of the positions beside it is at least this much gentler. */
 const MIN_GENTLER_DEG = 10;
 
 /**
  * The measurements to score a point by. Where a road, railway or wide track
- * is drawn on ground too steep to carry one, e.g. a few metres into the
+ * is drawn on ground too steep to carry one, e.g. a few meters into the
  * cliff it runs along the foot of, it is taken to be at whichever position a
  * GPS error to either side has it on the gentlest ground: that is where its
  * bed will be. Footpaths are left alone: a narrow path can cross ground this
@@ -478,10 +478,10 @@ const MIN_GENTLER_DEG = 10;
  * ground under the line is not what carries it.
  */
 function placed(p: MeasuredPoint, vehicleWidth: boolean): PointMetrics {
-  const centre = p.metrics!;
-  if (!vehicleWidth || centre.slopeDeg <= MAX_PATH_SLOPE_DEG || p.context?.bridge || p.context?.tunnel) return centre;
-  const gentlest = p.shifted.reduce<PointMetrics>((best, m) => (m && m.slopeDeg < best.slopeDeg ? m : best), centre);
-  return gentlest.slopeDeg <= centre.slopeDeg - MIN_GENTLER_DEG ? gentlest : centre;
+  const center = p.metrics!;
+  if (!vehicleWidth || center.slopeDeg <= MAX_PATH_SLOPE_DEG || p.context?.bridge || p.context?.tunnel) return center;
+  const gentlest = p.shifted.reduce<PointMetrics>((best, m) => (m && m.slopeDeg < best.slopeDeg ? m : best), center);
+  return gentlest.slopeDeg <= center.slopeDeg - MIN_GENTLER_DEG ? gentlest : center;
 }
 
 const UNSCORED = {
@@ -517,7 +517,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
   let legIndex = 0;
   let view: View | null = null;
 
-  const points: AnalysedPoint[] = measurement.points.map((p) => {
+  const points: AnalyzedPoint[] = measurement.points.map((p) => {
     const { dist, lon, lat, context } = p;
     while (legIndex < legs.length - 1 && dist > legs[legIndex].endM) legIndex++;
     const mode = legs[legIndex].mode;
@@ -543,7 +543,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     const dropScore = adjustScore(rawScore, context, params);
     // Whichever is worse decides: a wide view over a valley bothers on a safe path, and so does a drop in a forest.
     const adjusted = Math.max(dropScore, viewScore);
-    // A view does not change if the line is a few metres off, so it sets a floor under every variant.
+    // A view does not change if the line is a few meters off, so it sets a floor under every variant.
     const variants = [
       adjusted,
       ...p.shifted.flatMap((m) => (m ? [Math.max(adjustScore(scorePoint(settle(m), params), context, params), viewScore)] : [])),
@@ -588,7 +588,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     profile: measurement.profile ?? "hike",
     legs: legs.map((leg) =>
       TRAVEL_KIND[leg.mode] === "road" || TRAVEL_KIND[leg.mode] === "rail"
-        ? { ...leg, sides: summariseSides(measurement, points, leg, params) }
+        ? { ...leg, sides: summarizeSides(measurement, points, leg, params) }
         : leg,
     ),
     summary: {
@@ -603,7 +603,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
 }
 
 /** Measures and scores in one go. */
-export function analyseTrack(
+export function analyzeTrack(
   terrain: Terrain,
   track: TrackPoint[],
   projection: Projection,

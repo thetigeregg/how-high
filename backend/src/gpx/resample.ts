@@ -1,19 +1,19 @@
 export interface TrackPoint {
   x: number;
   y: number;
-  /** Distance from the start along the track, metres. */
+  /** Distance from the start along the track, meters. */
   dist: number;
   /** Unit vector in the direction of travel. */
   tx: number;
   ty: number;
 }
 
-/** Half-width of the window the direction of travel is measured over, metres. */
+/** Half-width of the window the direction of travel is measured over, meters. */
 const HEADING_WINDOW_M = 10;
 
 /**
  * Re-spaces a polyline (metric coordinates) to one point every `spacing`
- * metres, so every metric downstream is per-distance rather than per-GPS-fix.
+ * meters, so every metric downstream is per-distance rather than per-GPS-fix.
  */
 export function resample(line: Array<[number, number]>, spacing: number): TrackPoint[] {
   const cleaned: Array<[number, number]> = [];

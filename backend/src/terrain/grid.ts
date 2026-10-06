@@ -2,15 +2,15 @@
 export interface Terrain {
   /** Human-readable data source, shown with the result. */
   source: string;
-  /** Ground distance between elevation samples, metres. */
+  /** Ground distance between elevation samples, meters. */
   cellSize: number;
-  /** Elevation in metres, NaN where there is no data. */
+  /** Elevation in meters, NaN where there is no data. */
   elevation(x: number, y: number): number;
 }
 
 /**
  * A single north-up raster. `originX`/`originY` are the outer corner of the
- * top-left cell; values sit at cell centres.
+ * top-left cell; values sit at cell centers.
  */
 export class GridTerrain implements Terrain {
   constructor(

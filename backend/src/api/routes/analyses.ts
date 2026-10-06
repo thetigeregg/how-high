@@ -9,7 +9,7 @@ import { fetchRoute } from "../../google/routes.js";
 import type { Measurement } from "../../exposure/analyze.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
 import { writeGpx } from "../../gpx/write.js";
-import { dismiss, enqueue, isBeingReanalysed, listJobs, type JobControls } from "../../jobs.js";
+import { dismiss, enqueue, isBeingReanalyzed, listJobs, type JobControls } from "../../jobs.js";
 import {
   annotateSections,
   gpxPath,
@@ -299,14 +299,14 @@ export function registerAnalysesRoute(app: FastifyInstance) {
 
   // Measures the entry again from what it was made from, as a background job,
   // e.g. to retry map context that was unavailable. Name, rating and marks are kept.
-  app.post("/api/analyses/:id/reanalyse", async (request, reply) => {
+  app.post("/api/analyses/:id/reanalyze", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data) || !hasSource(id.data)) {
       return reply.status(404).send({ error: "not found" });
     }
     const target = id.data;
     const row = getRow(target)!;
-    if (isBeingReanalysed(target)) return reply.status(409).send({ error: "this is already being measured again" });
+    if (isBeingReanalyzed(target)) return reply.status(409).send({ error: "this is already being measured again" });
     const job = enqueue({ kind: row.kind === "route" ? "route" : "hike", label: row.name, reanalysisOf: target }, async (controls) => {
       const measurement = await remeasure(app.db, target, loadSettings(app.db), controls);
       if (!measurement.mapContext) retryContextLater(app.db, target);

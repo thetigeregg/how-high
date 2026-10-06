@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
-import { analyseTrack } from "./analyze.js";
+import { analyzeTrack } from "./analyze.js";
 import { distance, flaggedShare, judgeMark, mostSimilar, profileOf, verdictFor, type Profile, type Reference } from "./compare.js";
 import { DEFAULT_PARAMS } from "./score.js";
 
@@ -41,7 +41,7 @@ describe("comparing stretches", () => {
     const identity: Projection = { name: "test", forward: (x, y) => [x, y], inverse: (x, y) => [x, y] };
     // Flat for the first half of the track, then a 45° slope falling away to the right.
     const terrain = { source: "synthetic", cellSize: 2, elevation: (x: number, y: number) => (y < 0 ? 1000 : 1000 - Math.max(0, x + 2)) };
-    const analysis = analyseTrack(terrain, resample([[0, -200], [0, 200]], 5), identity);
+    const analysis = analyzeTrack(terrain, resample([[0, -200], [0, 200]], 5), identity);
     expect(profileOf(analysis, 0, 100)!.score).toBe(0);
     const steep = profileOf(analysis, 300, 400)!;
     expect(steep.score).toBeGreaterThan(75);
@@ -109,7 +109,7 @@ describe("judging a mark against the model", () => {
   const identity: Projection = { name: "test", forward: (x, y) => [x, y], inverse: (x, y) => [x, y] };
   // 1 km of flat ground with one 100 m stretch of 45° slope in the middle.
   const terrain = { source: "synthetic", cellSize: 2, elevation: (x: number, y: number) => (Math.abs(y) < 50 ? 1000 - Math.max(0, x + 2) : 1000) };
-  const analysis = analyseTrack(terrain, resample([[0, -500], [0, 500]], 5), identity);
+  const analysis = analyzeTrack(terrain, resample([[0, -500], [0, 500]], 5), identity);
 
   it("measures how much of a stretch is flagged", () => {
     expect(flaggedShare(analysis, 0, 1000)!).toBeGreaterThan(0.08);

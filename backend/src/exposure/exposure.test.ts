@@ -4,7 +4,7 @@ import { lv95, type Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
 import { DEFAULT_SETTINGS, settingsSchema } from "../settings.js";
-import { analyseTrack, measure, score } from "./analyze.js";
+import { analyzeTrack, measure, score } from "./analyze.js";
 import { DEFAULT_MEASURE, measureTrack } from "./metrics.js";
 import { DEFAULT_PARAMS, fallAwayDeg, findRuns, scorePoint } from "./score.js";
 
@@ -27,13 +27,13 @@ const tan = (deg: number) => Math.tan((deg * Math.PI) / 180);
 
 describe("exposure on synthetic terrain", () => {
   it("finds nothing on a flat plateau", () => {
-    const analysis = analyseTrack(ground(() => 1000), northbound(0), identity);
+    const analysis = analyzeTrack(ground(() => 1000), northbound(0), identity);
     expect(analysis.sections).toEqual([]);
     expect(analysis.summary.level).toBe("green");
   });
 
   it("measures a 30° side slope without calling it a fall", () => {
-    // Ground drops towards +x, i.e. to the right of a northbound walker.
+    // Ground drops toward +x, i.e. to the right of a northbound walker.
     const m = middle(measureTrack(ground((x) => 1000 - x * tan(30)), northbound(0)))!;
     expect(m.crossSlopeDeg).toBeCloseTo(30, 1);
     expect(m.fallLeft).toBe(0);
@@ -44,7 +44,7 @@ describe("exposure on synthetic terrain", () => {
   });
 
   it("rates a traverse of a 45° slope red, with the drop on the right", () => {
-    const analysis = analyseTrack(ground((x) => 1000 - x), northbound(0), identity);
+    const analysis = analyzeTrack(ground((x) => 1000 - x), northbound(0), identity);
     expect(analysis.summary.level).toBe("red");
     expect(analysis.sections).toHaveLength(1);
     expect(analysis.sections[0].side).toBe("right");
@@ -64,22 +64,22 @@ describe("exposure on synthetic terrain", () => {
   it("flags a path 5 m from a cliff edge", () => {
     const m = middle(measureTrack(cliff, northbound(-5)))!;
     expect(m.drop10).toBeCloseTo(25, 0);
-    expect(analyseTrack(cliff, northbound(-5), identity).summary.level).toBe("red");
+    expect(analyzeTrack(cliff, northbound(-5), identity).summary.level).toBe("red");
   });
 
   it("ignores a cliff 40 m away across flat ground", () => {
-    expect(analyseTrack(cliff, northbound(-40), identity).sections).toEqual([]);
+    expect(analyzeTrack(cliff, northbound(-40), identity).sections).toEqual([]);
   });
 
   it("reports a knife ridge as exposed on both sides", () => {
-    const analysis = analyseTrack(ground((x) => 1000 - Math.abs(x)), northbound(0), identity);
+    const analysis = analyzeTrack(ground((x) => 1000 - Math.abs(x)), northbound(0), identity);
     expect(analysis.sections[0].side).toBe("both");
     expect(analysis.summary.level).toBe("red");
   });
 
   it("spots a bridge over a gully the track crosses in a straight line", () => {
     const gully = ground((_x, y) => (Math.abs(y) < 6 ? 985 : 1000));
-    const analysis = analyseTrack(gully, northbound(0), identity);
+    const analysis = analyzeTrack(gully, northbound(0), identity);
     expect(analysis.sections).toHaveLength(1);
     expect(analysis.sections[0].possibleBridge).toBe(true);
     // Mid-span, 200 m in: the deck is 15 m above the gully floor.
@@ -87,7 +87,7 @@ describe("exposure on synthetic terrain", () => {
   });
 
   it("gives a lower 'at least' score when a GPS shift moves the track off the edge", () => {
-    const section = analyseTrack(cliff, northbound(-27), identity).sections[0];
+    const section = analyzeTrack(cliff, northbound(-27), identity).sections[0];
     expect(section.robustScore).toBeLessThan(section.maxScore);
   });
 });
@@ -117,23 +117,23 @@ describe("map context", () => {
     cliffNear: () => false,
     ...overrides,
   });
-  const terrainOnly = analyseTrack(slope, northbound(0), identity).sections[0].maxScore;
+  const terrainOnly = analyzeTrack(slope, northbound(0), identity).sections[0].maxScore;
 
   it("lowers the score where the slope below the path is wooded, even if the path is not", () => {
     // Trees only downhill (x > 5); the path at x = 0 runs along the forest edge.
-    const analysis = analyseTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x > 5 }) });
+    const analysis = analyzeTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x > 5 }) });
     expect(analysis.sections[0].maxScore).toBe(Math.round(terrainOnly * 0.6));
     expect(analysis.sections[0].rawMaxScore).toBe(terrainOnly);
     expect(analysis.sections[0].context?.forest).toBe(true);
   });
 
   it("does not count trees on the uphill side", () => {
-    const analysis = analyseTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x < 5 }) });
+    const analysis = analyzeTrack(slope, northbound(0), identity, { context: context({ inForest: (x) => x < 5 }) });
     expect(analysis.sections[0].maxScore).toBe(terrainOnly);
   });
 
   it("clears tunnels", () => {
-    const analysis = analyseTrack(slope, northbound(0), identity, {
+    const analysis = analyzeTrack(slope, northbound(0), identity, {
       context: context({ pathAt: () => ({ ...path, tunnel: true }) }),
     });
     expect(analysis.sections).toEqual([]);
@@ -141,17 +141,17 @@ describe("map context", () => {
 
   it("keeps a bridge the map confirms and drops one it disproves", () => {
     const gully = ground((_x, y) => (Math.abs(y) < 6 ? 985 : 1000));
-    const confirmed = analyseTrack(gully, northbound(0), identity, {
+    const confirmed = analyzeTrack(gully, northbound(0), identity, {
       context: context({ pathAt: () => ({ ...path, bridge: true }) }),
     });
     expect(confirmed.sections[0].context?.bridge).toBe(true);
     expect(confirmed.points[40].metrics!.bridgeGap).toBeCloseTo(15, 1);
-    const disproved = analyseTrack(gully, northbound(0), identity, { context: context({ pathAt: () => path }) });
+    const disproved = analyzeTrack(gully, northbound(0), identity, { context: context({ pathAt: () => path }) });
     expect(disproved.points[40].metrics!.bridgeGap).toBe(0);
   });
 
   it("reports the hardest mapped grade and aids along a section", () => {
-    const analysis = analyseTrack(slope, northbound(0), identity, {
+    const analysis = analyzeTrack(slope, northbound(0), identity, {
       context: context({ pathAt: (_x, y) => ({ ...path, sacGrade: y > 0 ? 4 : 2, aided: y > 100 }) }),
     });
     expect(analysis.sections[0].context).toMatchObject({ sacGrade: 4, aided: true, forest: false });
@@ -292,7 +292,7 @@ describe("route lines that stray from the map", () => {
 });
 
 describe("which side the drop is on", () => {
-  // Reversals are found from real coordinates, so this test places its metres on the globe.
+  // Reversals are found from real coordinates, so this test places its meters on the globe.
   const scaleX = 111_320 * Math.cos((47 * Math.PI) / 180);
   const globe: Projection = {
     name: "test",
@@ -320,7 +320,7 @@ describe("which side the drop is on", () => {
     expect(summary.rightM).toBeGreaterThan(300);
     expect(summary.leftM).toBe(0);
     expect(summary.sit).toBe("left");
-    // The same ground travelled the other way has the drop on the left.
+    // The same ground traveled the other way has the drop on the left.
     expect(sides(ground((x) => 1000 - Math.max(0, x)), resample([[0, 200], [0, -200]], 5))[0].sit).toBe("right");
   });
 
@@ -358,7 +358,7 @@ describe("which side the drop is on", () => {
 });
 
 describe("Street View link", () => {
-  const link = (terrain: Terrain, track = northbound(0)) => new URL(analyseTrack(terrain, track, identity).sections[0].links.streetView);
+  const link = (terrain: Terrain, track = northbound(0)) => new URL(analyzeTrack(terrain, track, identity).sections[0].links.streetView);
 
   it("opens at the worst spot, facing the drop and looking down", () => {
     // Northbound with the ground falling away to the east.
@@ -396,8 +396,8 @@ describe("at the foot of a cliff", () => {
   });
 
   it("rates the foot of the cliff far below its top", () => {
-    const foot = analyseTrack(lakeside, northbound(0), identity);
-    const top = analyseTrack(cliffTop, northbound(0), identity);
+    const foot = analyzeTrack(lakeside, northbound(0), identity);
+    const top = analyzeTrack(cliffTop, northbound(0), identity);
     expect(top.summary.level).toBe("red");
     expect(foot.summary.maxScore).toBeLessThan(50);
     expect(foot.summary.maxScore).toBeLessThan(top.summary.maxScore - 40);
@@ -413,7 +413,7 @@ describe("a line drawn off the path", () => {
   // A road bench 6 m wide at 1000 m: a 75° wall rising on the left of it, a lake 7 m below on the right.
   const bench = ground((x) => (x < -3 ? 1000 + (-x - 3) * tan(75) : x <= 3 ? 1000 : Math.max(993, 1000 - (x - 3) * 2)));
 
-  it("scores a line drawn a few metres into the wall as if it were on the road beside it", () => {
+  it("scores a line drawn a few meters into the wall as if it were on the road beside it", () => {
     // 5 m to the left the line is on the wall, some 7 m above the road; the road is the gentler ground beside it.
     const asDrawn = middle(measureTrack(bench, northbound(-5)))!;
     expect(asDrawn.slopeDeg).toBeGreaterThan(45);
@@ -422,16 +422,16 @@ describe("a line drawn off the path", () => {
     // The map says this is a wide track, so it cannot be on the wall itself.
     const wideTrack = { tunnel: false, bridge: false, wide: true, sacGrade: null, aided: false, rack: false, funicular: false };
     const context = { inForest: () => false, cliffNear: () => false, pathAt: () => wideTrack };
-    const intoWall = middle(analyseTrack(bench, northbound(-5), identity, { context }).points);
+    const intoWall = middle(analyzeTrack(bench, northbound(-5), identity, { context }).points);
     expect(intoWall.metrics!.elevation).toBeCloseTo(1000, 0);
     expect(intoWall.score).toBeLessThan(40);
     // A footpath drawn in the same place is taken at its word: it may really be up there on a ledge.
-    expect(middle(analyseTrack(bench, northbound(-5), identity).points).score).toBeGreaterThan(50);
+    expect(middle(analyzeTrack(bench, northbound(-5), identity).points).score).toBeGreaterThan(50);
   });
 
   it("leaves a path across an even steep slope where it is", () => {
     const slope = ground((x) => 1000 - x * tan(50));
-    const analysis = analyseTrack(slope, northbound(0), identity);
+    const analysis = analyzeTrack(slope, northbound(0), identity);
     expect(middle(analysis.points).metrics!.elevation).toBeCloseTo(1000, 0);
     expect(analysis.summary.level).toBe("red");
   });
@@ -439,6 +439,6 @@ describe("a line drawn off the path", () => {
   it("does not pull a path on a cliff top back from the edge", () => {
     // Flat ground under the line, so it is where a path could be; the edge 5 m away still counts.
     const top = ground((x) => (x < 0 ? 1000 : Math.max(950, 1000 - x * 5)));
-    expect(analyseTrack(top, northbound(-5), identity).summary.level).toBe("red");
+    expect(analyzeTrack(top, northbound(-5), identity).summary.level).toBe("red");
   });
 });

@@ -10,7 +10,7 @@
     fetchAnalyses,
     fetchAnalysis,
     fetchMeta,
-    reanalyse,
+    reanalyze,
     setMarkCause,
     updateAnalysis,
     uploadGpx,
@@ -253,10 +253,10 @@
     const where = `km ${(ref.startM / 1000).toFixed(2)} of `;
     const which = `, which ${VERDICT_WORD[ref.kind]}.`;
     if (verdict.brief) {
-      const metres = `${Math.round(verdict.lengthAtOrAboveM)} m`;
+      const meters = `${Math.round(verdict.lengthAtOrAboveM)} m`;
       const at = `${verdict.brief.spots === 1 ? "at" : "starting at"} km ${(verdict.brief.firstAtM / 1000).toFixed(2)}`;
       const reach = verdict.tone === "beyond" ? "scores above" : "reaches the level of";
-      return { before: `${metres} ${at} ${reach} ${where}`, after: `${which} ${REST_TEXT[verdict.brief.restTone]}` };
+      return { before: `${meters} ${at} ${reach} ${where}`, after: `${which} ${REST_TEXT[verdict.brief.restTone]}` };
     }
     const length = ` ${km(verdict.lengthAtOrAboveM)} of this is at or above that level.`;
     if (verdict.tone === "beyond") return { before: `Its worst stretch scores above ${where}`, after: which + length };
@@ -360,7 +360,7 @@
     void run(async () => replaceSummary(await updateAnalysis(id, { name: next })));
   }
 
-  let reanalysing = $state(false);
+  let reanalyzing = $state(false);
   let settingsOpen = $state(false);
 
   // Settings apply to every hike, so both the library and the open hike are stale after a change.
@@ -378,11 +378,11 @@
   async function rerun() {
     if (!detail) return;
     const { id } = detail.summary;
-    reanalysing = true;
+    reanalyzing = true;
     await run(async () => {
-      jobs = [...jobs, await reanalyse(id)];
+      jobs = [...jobs, await reanalyze(id)];
     });
-    reanalysing = false;
+    reanalyzing = false;
   }
 
   function remove() {
@@ -481,7 +481,7 @@
             <LevelBadge level={result.summary.level} />
             <span>peak score {result.summary.maxScore}</span>
             {#if detail.summary.insight && detail.summary.insight.level !== result.summary.level}
-              <span title="The worst level that holds even if the route line is a few metres off; the library list goes by this">
+              <span title="The worst level that holds even if the route line is a few meters off; the library list goes by this">
                 at least {LEVEL_LABEL[detail.summary.insight.level]}
               </span>
             {/if}
@@ -537,7 +537,7 @@
             </p>
             {#if result.summary.noDataM > 0}
               <p class="note">
-                {km(result.summary.noDataM)} of this route is not scored (grey on the map): there Google's line strays
+                {km(result.summary.noDataM)} of this route is not scored (gray on the map): there Google's line strays
                 from the mapped road or track, so the terrain under it says nothing about the ride.
               </p>
             {/if}
@@ -579,10 +579,10 @@
           </a>
           <button
             type="button"
-            disabled={reanalysing || (reanalysis !== null && reanalysis.state !== "failed")}
+            disabled={reanalyzing || (reanalysis !== null && reanalysis.state !== "failed")}
             onclick={rerun}
           >
-            {reanalysis && reanalysis.state !== "failed" ? "Re-analysing…" : "Re-analyse"}
+            {reanalysis && reanalysis.state !== "failed" ? "Re-analyzing…" : "Re-analyze"}
           </button>
           <button type="button" class="danger" onclick={remove}>Delete</button>
         </div>
@@ -600,7 +600,7 @@
             {/if}
           </span>
           <span class="basis">
-            Judged by the score that holds even if the line is a few metres off, against stretches you have marked on
+            Judged by the score that holds even if the line is a few meters off, against stretches you have marked on
             other {detail.summary.kind === "route" ? "routes" : "hikes"}.
           </span>
         </div>
@@ -889,7 +889,7 @@
     border-radius: 0.5rem;
     font-size: 0.95rem;
   }
-  /* The edge colour repeats what the title says in words. */
+  /* The edge color repeats what the title says in words. */
   .verdict.beyond {
     border-left-color: #d03b3b;
   }

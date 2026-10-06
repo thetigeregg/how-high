@@ -11,7 +11,7 @@ const MAX_STATION_OFFSET_M = 400;
 const SKETCH_STEP_M = 200;
 /**
  * Track far from the sketch costs more, so that between two lines joining the
- * same stations the one the sketch runs along wins. Every this many metres
+ * same stations the one the sketch runs along wins. Every this many meters
  * away adds the track's own length again; the detour must be worth it.
  */
 const STRAY_SCALE_M = 1500;
@@ -76,7 +76,7 @@ class Queue {
  */
 export function followTrack(sketch: GpxPoint[], railways: OsmElement[]): GpxPoint[] | null {
   if (sketch.length < 2) return null;
-  // Plain metres east and north of the first point; accurate enough over one ride.
+  // Plain meters east and north of the first point; accurate enough over one ride.
   const lat0 = sketch[0].lat;
   const scaleX = EARTH_M * Math.cos((lat0 * Math.PI) / 180);
   const toXY = (p: GpxPoint): [number, number] => [(p.lon - sketch[0].lon) * scaleX, (p.lat - lat0) * EARTH_M];

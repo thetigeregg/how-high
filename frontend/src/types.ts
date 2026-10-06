@@ -23,9 +23,9 @@ export interface AnalysisSummary {
 }
 
 export interface Insight {
-  /** The worst level that holds even if the line is a few metres off. */
+  /** The worst level that holds even if the line is a few meters off. */
   level: Level;
-  /** How much of the route is at that level, metres; 0 when it is Easy throughout. */
+  /** How much of the route is at that level, meters; 0 when it is Easy throughout. */
   extentM: number;
   /** How it stands against your marks on others of its kind; null when there are none to judge by. */
   forecast: { tone: Verdict["tone"]; brief: { spots: number; restTone: Verdict["tone"] } | null } | null;
@@ -37,7 +37,7 @@ export type Status = "planned" | "done";
 export interface Verdict {
   tone: "beyond" | "difficult" | "unknown" | "fine";
   reference: ReferenceLink | null;
-  /** Length at or above the reference's score, metres. */
+  /** Length at or above the reference's score, meters. */
   lengthAtOrAboveM: number;
   /** Set when only a spot or two reach that level: how many, where the first starts, and how the rest stands. */
   brief: { spots: number; firstAtM: number; restTone: Verdict["tone"] } | null;
@@ -46,7 +46,7 @@ export interface Verdict {
 export type LegMode = "hike" | "walk" | "drive" | "bus" | "rail" | "lift" | "ferry";
 export type NoGoKind = "cableCars" | "funiculars" | "rackRailways";
 
-/** One stretch of a route travelled in one way, e.g. a single train ride. */
+/** One stretch of a route traveled in one way, e.g. a single train ride. */
 export interface Leg {
   mode: LegMode;
   label: string;
@@ -94,7 +94,7 @@ export interface PointContext {
   noGo?: NoGoKind | null;
 }
 
-export interface AnalysedPoint {
+export interface AnalyzedPoint {
   dist: number;
   lon: number;
   lat: number;
@@ -104,7 +104,7 @@ export interface AnalysedPoint {
   /** The part of the score from the ground beside the route, and the part from the view. */
   dropScore: number | null;
   viewScore: number | null;
-  /** Depth of the view down across the arc that counts, metres. */
+  /** Depth of the view down across the arc that counts, meters. */
   viewDepthM: number | null;
   context?: PointContext | null;
   scoreLow: number | null;
@@ -164,7 +164,7 @@ export interface Analysis {
   lengthM: number;
   spacingM: number;
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
-  /** Absent on hikes analysed before map context existed. */
+  /** Absent on hikes analyzed before map context existed. */
   mapContext?: boolean;
   /** Score at which Mild, Exposed and Severe start. */
   thresholds: [number, number, number];
@@ -177,7 +177,7 @@ export interface Analysis {
     noDataM: number;
   };
   sections: Section[];
-  points: AnalysedPoint[];
+  points: AnalyzedPoint[];
 }
 
 export type MarkKind = "fine" | "uneasy" | "bad" | "turned_back";
@@ -197,7 +197,7 @@ export interface Mark {
 /** The drop beside the path, the view, both, or something the app does not measure. */
 export type MarkCause = "drops" | "view" | "both" | "other";
 
-/** A stretch of the route, in metres from the start. */
+/** A stretch of the route, in meters from the start. */
 export interface Range {
   startM: number;
   endM: number;

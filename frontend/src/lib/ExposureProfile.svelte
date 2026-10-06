@@ -172,7 +172,7 @@
     <path class="line" d={dropPath} />
     {#if hasViews}
       <path class="line view" d={viewPath} />
-      <!-- Legend for the two score lines; told apart by dash, not colour. -->
+      <!-- Legend for the two score lines; told apart by dash, not color. -->
       <g transform="translate({M.left + plotW - 150}, {SCORE_TOP - 10})">
         <line class="line" x1="0" x2="18" y1="0" y2="0" />
         <text class="label" x="22" y="0" dominant-baseline="middle">drops</text>
@@ -181,7 +181,7 @@
       </g>
     {/if}
 
-    <!-- The user's own marks, in ink rather than colour so they never read as model levels. -->
+    <!-- The user's own marks, in ink rather than color so they never read as model levels. -->
     {#each marks as mark}
       {#if mark.kind === "turned_back"}
         <line class="turned-back" x1={x(mark.startM)} x2={x(mark.startM)} y1={MARK_LANE_Y} y2={yScore(0)} />

@@ -50,7 +50,7 @@
     return `${REST[f.brief.restTone]}, ${easierRest ? "apart from" : "hardest in"} ${spots}`;
   }
   const toneOf = (f: Forecast) => f.brief?.restTone ?? f.tone;
-  /** Short stretches in metres, longer ones in kilometres. */
+  /** Short stretches in meters, longer ones in kilometers. */
   const extent = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : km(m));
 </script>
 
@@ -89,7 +89,7 @@
           {:else if a.status === "planned" && a.insight?.forecast}
             <span class="lead"><span class="tone {toneOf(a.insight.forecast)}"></span>{forecastLabel(a.insight.forecast)}</span>
           {/if}
-          <span class="meta" title="The worst level that holds even if the route line is a few metres off, and how much of the route is at that level">
+          <span class="meta" title="The worst level that holds even if the route line is a few meters off, and how much of the route is at that level">
             <LevelBadge level={a.insight?.level ?? a.level} />
             {#if a.insight && a.insight.extentM > 0}
               <span>for {extent(a.insight.extentM)}</span>

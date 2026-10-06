@@ -17,7 +17,7 @@ const FIELDS = [
   "routes.legs.steps.transitDetails.stopDetails.arrivalStop.name",
 ].join(",");
 
-// How each Google vehicle type is travelled, what to call it, and whether it is a no-go kind.
+// How each Google vehicle type is traveled, what to call it, and whether it is a no-go kind.
 const VEHICLES: Record<string, { mode: LegMode; word: string; noGo?: NoGoKind }> = {
   BUS: { mode: "bus", word: "Bus" },
   INTERCITY_BUS: { mode: "bus", word: "Bus" },
@@ -124,7 +124,7 @@ async function computeRoute(stops: Stop[], mode: TravelMode): Promise<ApiRoute> 
       intermediates: between(stops),
       travelMode: mode,
       // The detailed line: points every 15 m or so, where the default leaves gaps
-      // of hundreds of metres that would be bridged by straight lines. Not offered for public transport.
+      // of hundreds of meters that would be bridged by straight lines. Not offered for public transport.
       ...(mode === "TRANSIT" ? {} : { polylineQuality: "HIGH_QUALITY" }),
     }),
     signal: AbortSignal.timeout(30_000),

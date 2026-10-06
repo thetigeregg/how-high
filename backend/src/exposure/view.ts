@@ -4,11 +4,11 @@ import type { Terrain } from "../terrain/grid.js";
 // beside the path is: a flat, safe path can still look out over a valley far
 // below, and that view is what this measures.
 
-/** Directions looked in, evenly round the compass starting at east and turning anticlockwise. */
+/** Directions looked in, evenly round the compass starting at east and turning counterclockwise. */
 export const VIEW_RAYS = 36;
-/** How far the view is followed, metres. */
+/** How far the view is followed, meters. */
 export const VIEW_RADIUS_M = 8000;
-/** Depths are recorded for what is visible within each of these distances, metres. */
+/** Depths are recorded for what is visible within each of these distances, meters. */
 export const VIEW_BANDS_M = [500, 2000, VIEW_RADIUS_M];
 const EYE_HEIGHT_M = 1.6;
 /** Up to here the ground is read from the fine terrain beside the route; beyond, from the coarse far terrain. */
@@ -23,7 +23,7 @@ const CURVATURE = 0.87 / (2 * 6_371_000);
  * What can be seen from one place: for each direction, how far below eye
  * level the lowest visible ground lies within each distance band. Ground
  * hidden behind nearer ground does not count, so standing back from an edge
- * shows less than standing on it. Depths are in whole metres, laid out as
+ * shows less than standing on it. Depths are in whole meters, laid out as
  * `VIEW_RAYS` runs of `VIEW_BANDS_M.length` values.
  */
 export function measureView(near: Terrain, far: Terrain, x: number, y: number): number[] | null {

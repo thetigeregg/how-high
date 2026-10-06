@@ -39,7 +39,7 @@
   const sections: Section[] = [
     {
       title: "Levels",
-      intro: "Every point gets a score from 0 to 100. These decide which scores get which colour.",
+      intro: "Every point gets a score from 0 to 100. These decide which scores get which color.",
       knobs: [
         {
           group: "score",
@@ -199,7 +199,7 @@
     },
     {
       title: "Sections",
-      intro: "How scored points are grouped into the flagged sections that are listed and coloured.",
+      intro: "How scored points are grouped into the flagged sections that are listed and colored.",
       knobs: [
         {
           group: "score",
@@ -219,7 +219,7 @@
     },
     {
       title: "No-go transport",
-      intro: "Kinds of transport that make a route a no-go outright: that stretch is rated Severe whatever the terrain. Rack railways are recognised only where the map marks the rack rail.",
+      intro: "Kinds of transport that make a route a no-go outright: that stretch is rated Severe whatever the terrain. Rack railways are recognized only where the map marks the rack rail.",
       knobs: [
         { group: "noGo", key: "cableCars", label: "Cable cars, gondolas and chairlifts", help: "" },
         { group: "noGo", key: "funiculars", label: "Funiculars", help: "" },

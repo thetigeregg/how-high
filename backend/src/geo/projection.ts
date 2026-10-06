@@ -22,7 +22,7 @@ function fromProj4(name: string, def: string): Projection {
 /** Swiss national grid (EPSG:2056), the native CRS of swissALTI3D. */
 export const lv95: Projection = fromProj4("LV95", LV95);
 
-/** Transverse Mercator centred on the route, for anywhere outside Switzerland. */
+/** Transverse Mercator centered on the route, for anywhere outside Switzerland. */
 export function localProjection(lon: number, lat: number): Projection {
   return fromProj4("local", `+proj=tmerc +lat_0=${lat} +lon_0=${lon} +k_0=1 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
 }

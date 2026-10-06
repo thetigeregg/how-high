@@ -52,8 +52,8 @@ export function updateAnalysis(
 }
 
 /** Starts measuring an entry again in the background. */
-export function reanalyse(id: number): Promise<Job> {
-  return request(`/api/analyses/${id}/reanalyse`, { method: "POST" });
+export function reanalyze(id: number): Promise<Job> {
+  return request(`/api/analyses/${id}/reanalyze`, { method: "POST" });
 }
 
 export function deleteAnalysis(id: number): Promise<void> {

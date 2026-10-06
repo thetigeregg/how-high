@@ -6,7 +6,7 @@ const escape = (text: string) =>
 /**
  * Writes a measured route as a GPX file, for entries that were not made from
  * one (those from a Google Maps link). The line is the one that was measured,
- * a point every few metres, so a train leg follows the mapped track; each
+ * a point every few meters, so a train leg follows the mapped track; each
  * point carries the terrain elevation found under it. One track per leg.
  */
 export function writeGpx(measurement: Measurement, name: string, link: string | null): string {

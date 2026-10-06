@@ -21,7 +21,7 @@ const QUICK_TIMEOUT_MS = 12_000;
 
 const cacheDir = path.join(config.dataDir, "osm");
 
-/** Radius around the line within which ways are fetched, metres. */
+/** Radius around the line within which ways are fetched, meters. */
 const AROUND_M = 60;
 
 /**

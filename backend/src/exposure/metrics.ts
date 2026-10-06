@@ -1,7 +1,7 @@
 import type { TrackPoint } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
 
-/** Raw terrain measurements at one point of the track. All heights in metres. */
+/** Raw terrain measurements at one point of the track. All heights in meters. */
 export interface PointMetrics {
   elevation: number;
   /** Steepness of the ground itself at the point. */
@@ -32,11 +32,11 @@ export interface PointMetrics {
 export interface MeasureParams {
   /** Ground steeper than this counts as "would keep falling", degrees. */
   fallSlopeDeg: number;
-  /** A fall ends once this much gentler ground has been crossed, metres. */
+  /** A fall ends once this much gentler ground has been crossed, meters. */
   fallRunoutM: number;
-  /** Assumed sideways GPS error the score is re-tested against, metres. */
+  /** Assumed sideways GPS error the score is re-tested against, meters. */
   gpsErrorM: number;
-  /** How far to the exposed side the ground must still be wooded to count as forest, metres. */
+  /** How far to the exposed side the ground must still be wooded to count as forest, meters. */
   forestCheckM: number;
 }
 
@@ -49,7 +49,7 @@ export const DEFAULT_MEASURE: MeasureParams = {
 
 const DEG = Math.PI / 180;
 
-/** Where the fall line starts, sideways from the track centre. */
+/** Where the fall line starts, sideways from the track center. */
 const FALL_START_OFFSET_M = 3;
 const FALL_MAX_PATH_M = 400;
 
@@ -85,7 +85,7 @@ function fallHeight(terrain: Terrain, x: number, y: number, z0: number, nx: numb
 
   let lowestSteep = z0;
   let gentleRun = 0;
-  for (let travelled = 0; travelled < FALL_MAX_PATH_M; travelled += step) {
+  for (let traveled = 0; traveled < FALL_MAX_PATH_M; traveled += step) {
     const g = gradient(terrain, px, py, step);
     if (!g) break;
     const slope = Math.hypot(g[0], g[1]);

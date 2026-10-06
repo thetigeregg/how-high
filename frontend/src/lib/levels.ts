@@ -9,7 +9,7 @@ export const LEVEL_LABEL: Record<Level, string> = {
   red: "Severe",
 };
 
-// Status colours; always shown next to the label, never as the only cue.
+// Status colors; always shown next to the label, never as the only cue.
 export const LEVEL_COLOR: Record<Level, string> = {
   green: "#0ca30c",
   yellow: "#fab219",

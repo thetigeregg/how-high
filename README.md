@@ -4,7 +4,7 @@ Shows where a hike is exposed, before you walk it. Built for someone with a
 fear of heights living in Switzerland: the trigger is less altitude than steep
 ground falling away beside the path, so that is what gets measured.
 
-Upload a GPX file and you get the route coloured by exposure on a map, an
+Upload a GPX file and you get the route colored by exposure on a map, an
 elevation and score profile, and a table of flagged sections. Mark how
 stretches actually felt, and new hikes are compared against those marks.
 
@@ -12,7 +12,7 @@ In the library list each entry leads with what matters most for it: your
 own verdict if you have done it, the forecast if you have not. Below that is
 its worst level and how much of the route is at that level ("Severe for
 70 m of 5.1 km"). That level goes by each section's "at least" score, so a
-route line drawn a few metres off does not turn a whole hike red; the entry's
+route line drawn a few meters off does not turn a whole hike red; the entry's
 own page still shows the raw peak beside it.
 
 Each entry is either planned or done. A planned one gets a forecast: whether
@@ -56,7 +56,7 @@ caches are not included; they are fetched again when needed.
 
 Importing that file elsewhere first shows what it holds and what would
 change, then either adds to what is there (entries both sides have are
-updated from the file; an entry is recognised by the GPX file or route it
+updated from the file; an entry is recognized by the GPX file or route it
 was made from) or replaces everything. The settings in the file can be taken
 or left. The state before an import is saved as a backup export under
 `backups/` in the data folder; the newest three are kept.
@@ -89,7 +89,7 @@ The worse of the two decides. Together they give a score from 0 to 100,
 shown as Easy, Mild, Exposed or Severe; the profile chart draws them as two
 lines and each flagged section says whether drops, the view or both caused
 it. Map data then adjusts it: wooded slopes and wide tracks lower the
-score, tunnels clear it, and bridges are confirmed or dismissed. Neighbouring
+score, tunnels clear it, and bridges are confirmed or dismissed. Neighboring
 flagged points are grouped into sections.
 
 Every number involved is adjustable under **Settings**, with an explanation
@@ -99,14 +99,14 @@ applies to all hikes at once.
 ### Routes from Google Maps links
 
 A shared link only says where the route starts and ends and how it is
-travelled, not which line it follows. The app asks Google's Routes API for
+traveled, not which line it follows. The app asks Google's Routes API for
 the route and scores that, so it is Google's current suggestion and can
 differ from what was on screen when the link was shared. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
 or road on the map.
 
 Anything made from a link can be exported as a GPX file (**Export GPX**):
-the line that was measured, a point every few metres, with the terrain
+the line that was measured, a point every few meters, with the terrain
 elevation under each point and one track per leg. Hikes uploaded as GPX give
 back the original file instead.
 
@@ -125,9 +125,9 @@ transport, so such a route is fetched stop to stop and joined.
 
 A long route downloads terrain for its whole length the first time, about
 1 MB per km in Switzerland, which can take several minutes. Adding and
-re-analysing therefore run in the background: the entry appears in the
+re-analyzing therefore run in the background: the entry appears in the
 sidebar as pending, with a progress bar counting the roughly 5 km pieces it
-is measured in, and can be cancelled. One is measured at a time and the
+is measured in, and can be canceled. One is measured at a time and the
 rest wait their turn. Pending entries are held in memory only, so one that
 is interrupted by a restart has to be added again.
 
@@ -137,7 +137,7 @@ inside a vehicle, usually behind a guardrail. Tunnels score nothing, and on a
 mapped bridge the height above the ground is measured along its whole
 length. Cable cars, gondolas, chairlifts, funiculars and rack railways are
 rated Severe outright; each can be switched off in Settings. Rack railways
-are only recognised where OpenStreetMap marks the rack rail.
+are only recognized where OpenStreetMap marks the rack rail.
 
 For each ride the app also says which side the drops are on, relative to
 the direction of travel, and which side to sit on when one is clearly
@@ -166,8 +166,8 @@ With few marks, many settings fit equally well, and the dialog says so.
 Path width, railings, guardrails, chains and cables are not in any of the
 data, nor which side of a train or bus you sit on. Forest
 outlines are coarse, and trees near the treeline hide little. GPS lines can
-be several metres off, which is why each section also shows an "at least"
-score for the most favourable sideways shift. Treat the result as a warning
+be several meters off, which is why each section also shows an "at least"
+score for the most favorable sideways shift. Treat the result as a warning
 of where to look, and use the swisstopo and Google links on each section to
 check for yourself.
 
@@ -179,7 +179,7 @@ check for yourself.
   30 m, everywhere.
 - **Terrain elsewhere**: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/),
   roughly 10 to 30 m. Good for steep mountainsides, blind to small cliffs;
-  results are labelled as low confidence.
+  results are labeled as low confidence.
 - **Paths, roads, railways, forest, bridges, tunnels**: © OpenStreetMap
   contributors, fetched through public Overpass servers: the Swiss one
   (overpass.osm.ch) inside Switzerland, the worldwide ones otherwise. The

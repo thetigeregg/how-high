@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Cancelled, dismiss, enqueue, idle, isBeingReanalysed, listJobs, reset, type JobControls } from "./jobs.js";
+import { Canceled, dismiss, enqueue, idle, isBeingReanalyzed, listJobs, reset, type JobControls } from "./jobs.js";
 
 const info = { kind: "hike" as const, label: "Test", reanalysisOf: null };
 /** A task that waits to be told to finish, so a test can look at it mid-run. */
@@ -64,7 +64,7 @@ describe("background jobs", () => {
     ]);
   });
 
-  it("drops a waiting job that is cancelled, without running it", async () => {
+  it("drops a waiting job that is canceled, without running it", async () => {
     const first = held();
     let ran = false;
     enqueue(info, first.task);
@@ -84,11 +84,11 @@ describe("background jobs", () => {
       controls = c;
       await new Promise<void>((resolve) => (step = resolve));
       // What the measuring loop does between pieces.
-      if (c.cancelled()) throw new Cancelled();
+      if (c.canceled()) throw new Canceled();
       return 1;
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(controls.cancelled()).toBe(false);
+    expect(controls.canceled()).toBe(false);
     dismiss(job.id);
     expect(listJobs()[0]).toMatchObject({ state: "running", stage: "Stopping" });
     step();
@@ -109,11 +109,11 @@ describe("background jobs", () => {
   it("knows which entries are being measured again", async () => {
     const work = held();
     enqueue({ ...info, reanalysisOf: 5 }, work.task);
-    expect(isBeingReanalysed(5)).toBe(true);
-    expect(isBeingReanalysed(6)).toBe(false);
+    expect(isBeingReanalyzed(5)).toBe(true);
+    expect(isBeingReanalyzed(6)).toBe(false);
     await work.started;
     work.finish(5);
     await idle();
-    expect(isBeingReanalysed(5)).toBe(false);
+    expect(isBeingReanalyzed(5)).toBe(false);
   });
 });

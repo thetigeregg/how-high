@@ -44,7 +44,7 @@ export interface Verdict {
   tone: "beyond" | "difficult" | "unknown" | "fine";
   /** The marked stretch the verdict is measured against. */
   reference: Reference | null;
-  /** Length of this route at or above the reference's score, metres. */
+  /** Length of this route at or above the reference's score, meters. */
   lengthAtOrAboveM: number;
   /**
    * Set when that length is so short that the tone describes a spot or two,
@@ -59,7 +59,7 @@ const BRIEF_M = 150;
 
 /**
  * Judges a route by its flagged sections' "at least" scores, i.e. what holds
- * up even if the line is a few metres off, so one noisy spot does not decide
+ * up even if the line is a few meters off, so one noisy spot does not decide
  * it. The tone goes by the worst stretch, however short, because the
  * stretches that bother someone are often short themselves; when it is only
  * a spot or two, the verdict says that too. Like is compared with like: a

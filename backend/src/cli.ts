@@ -3,7 +3,7 @@ import { score } from "./exposure/analyze.js";
 import { gpxSource, measureSource } from "./exposure/pipeline.js";
 import { parseGpx } from "./gpx/parse.js";
 
-// Tuning tool: analyse one GPX file with the default settings and print the flagged sections.
+// Tuning tool: analyze one GPX file with the default settings and print the flagged sections.
 //   npm run analyze -- hike.gpx [--json out.json]
 
 const args = process.argv.slice(2);
