@@ -245,13 +245,14 @@ interface MarkRow {
   kind: MarkKind;
   startM: number;
   endM: number;
+  cause: string | null;
 }
 
 async function loadReferences(db: Database.Database, settings: Settings): Promise<Reference[]> {
   if (references) return references;
   const marks = db
     .prepare(
-      `SELECT m.analysis_id AS analysisId, a.name, m.kind, m.start_m AS startM, m.end_m AS endM
+      `SELECT m.analysis_id AS analysisId, a.name, m.kind, m.start_m AS startM, m.end_m AS endM, m.cause
        FROM marks m JOIN analyses a ON a.id = m.analysis_id
        WHERE (m.kind = 'fine' OR m.cause IS NULL OR m.cause != 'other') ORDER BY m.analysis_id, m.start_m`,
     )
@@ -264,7 +265,9 @@ async function loadReferences(db: Database.Database, settings: Settings): Promis
     if (!analysis) continue;
     const endM = mark.kind === "turned_back" ? mark.startM + TURNED_BACK_LOOKAHEAD_M : mark.endM;
     const profile = profileOf(analysis, mark.startM, endM);
-    if (profile) built.push({ ...mark, endM, profile, routeProfile: analysis.profile });
+    // Only a single named cause narrows what the stretch is compared with.
+    const cause = mark.kind !== "fine" && (mark.cause === "drops" || mark.cause === "view") ? mark.cause : null;
+    if (profile) built.push({ ...mark, endM, profile, routeProfile: analysis.profile, cause });
   }
   references = built;
   return built;

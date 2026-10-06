@@ -4,6 +4,9 @@ import type { ScoreParams } from "./score.js";
 /** The hardest values found anywhere along a stretch. */
 export interface Profile {
   score: number;
+  /** The same peak taken from the drop score alone and from the view score alone. */
+  dropScore?: number;
+  viewScore?: number;
   fallM: number;
   drop100M: number;
   crossSlopeDeg: number;
@@ -22,6 +25,12 @@ export interface Reference {
   profile: Profile;
   /** Hikes and rides are scored on different scales, so they are only compared with their own kind. */
   routeProfile: RouteProfile;
+  /**
+   * What the user put a difficult stretch down to, when they named one thing:
+   * it is then only compared with stretches flagged for the same thing. A
+   * stretch that was uneasy for its view says nothing about a drop.
+   */
+  cause?: "drops" | "view" | null;
 }
 
 /**
@@ -53,40 +62,77 @@ const BRIEF_M = 150;
  * up even if the line is a few metres off, so one noisy spot does not decide
  * it. The tone goes by the worst stretch, however short, because the
  * stretches that bother someone are often short themselves; when it is only
- * a spot or two, the verdict says that too. Returns null when there are no
- * marks of the same kind to judge by.
+ * a spot or two, the verdict says that too. Like is compared with like: a
+ * section flagged for its drop is not judged by a stretch that was uneasy
+ * for its view, nor vouched for by one that was fine only because its drops
+ * were small. Returns null when there are no marks of the same kind of
+ * travel to judge by.
  */
 export function verdictFor(analysis: Analysis, references: Reference[]): Verdict | null {
   const relevant = references.filter((r) => r.routeProfile === analysis.profile);
   if (relevant.length === 0) return null;
-  const byScore = (a: Reference, b: Reference) => a.profile.score - b.profile.score;
-  const difficult = relevant.filter((r) => r.kind !== "fine").sort(byScore);
-  const fine = relevant.filter((r) => r.kind === "fine").sort(byScore);
+  const difficult = relevant.filter((r) => r.kind !== "fine");
+  const fine = relevant.filter((r) => r.kind === "fine");
+  type Flagged = Analysis["sections"][number];
+  const flaggedFor = (s: Flagged, what: "drops" | "view") => s.cause === undefined || s.cause === "both" || s.cause === what;
 
-  const judge = (sections: Analysis["sections"]): Omit<Verdict, "brief"> => {
-    const peak = Math.max(0, ...sections.map((s) => s.robustScore));
-    const lengthAtOrAbove = (score: number) =>
-      sections.filter((s) => s.robustScore >= score).reduce((sum, s) => sum + s.lengthM, 0);
-    const hardest = difficult[difficult.length - 1];
-    if (hardest && peak > hardest.profile.score) {
-      return { tone: "beyond", reference: hardest, lengthAtOrAboveM: lengthAtOrAbove(hardest.profile.score) };
-    }
-    // The hardest stretch that bothered them which this route still reaches.
-    const reached = difficult.filter((r) => r.profile.score <= peak).pop();
-    if (reached) return { tone: "difficult", reference: reached, lengthAtOrAboveM: lengthAtOrAbove(reached.profile.score) };
-    const easiestFineAbove = fine.find((r) => r.profile.score >= peak);
-    if (easiestFineAbove) return { tone: "fine", reference: easiestFineAbove, lengthAtOrAboveM: 0 };
-    return { tone: "unknown", reference: fine[fine.length - 1] ?? difficult[0] ?? null, lengthAtOrAboveM: 0 };
+  /** The score a difficult stretch sets as its level for this section, or null if it was difficult for something else. */
+  const levelOf = (r: Reference, s: Flagged): number | null => {
+    if (r.cause === "view") return flaggedFor(s, "view") ? (r.profile.viewScore ?? r.profile.score) : null;
+    if (r.cause === "drops") return flaggedFor(s, "drops") ? (r.profile.dropScore ?? r.profile.score) : null;
+    return r.profile.score;
+  };
+  /** How far a stretch marked fine vouches for this section: by what it scored on the count the section is flagged for. */
+  const vouchedTo = (r: Reference, s: Flagged): number => {
+    const drops = r.profile.dropScore ?? r.profile.score;
+    const view = r.profile.viewScore ?? r.profile.score;
+    return s.cause === "drops" ? drops : s.cause === "view" ? view : s.cause === "both" ? Math.min(drops, view) : r.profile.score;
   };
 
-  const verdict = judge(analysis.sections);
-  const level = verdict.reference?.profile.score ?? 0;
-  const troubling = verdict.tone === "beyond" || verdict.tone === "difficult";
-  if (!troubling || verdict.lengthAtOrAboveM > BRIEF_M) return { ...verdict, brief: null };
+  const judgeSection = (s: Flagged): { tone: Verdict["tone"]; reference: Reference | null; level: number } => {
+    const levels = difficult
+      .flatMap((r) => {
+        const level = levelOf(r, s);
+        return level === null ? [] : [{ reference: r, level }];
+      })
+      .sort((a, b) => a.level - b.level);
+    const hardest = levels[levels.length - 1];
+    if (hardest && s.robustScore > hardest.level) return { tone: "beyond", ...hardest };
+    // The hardest stretch that bothered them which this section still reaches.
+    const reached = levels.filter((l) => l.level <= s.robustScore).pop();
+    if (reached) return { tone: "difficult", ...reached };
+    const vouching = fine.filter((r) => vouchedTo(r, s) >= s.robustScore).sort((a, b) => vouchedTo(a, s) - vouchedTo(b, s))[0];
+    if (vouching) return { tone: "fine", reference: vouching, level: vouchedTo(vouching, s) };
+    return { tone: "unknown", reference: null, level: 0 };
+  };
+
+  const ORDER: Array<Verdict["tone"]> = ["fine", "unknown", "difficult", "beyond"];
+  const judge = (sections: Flagged[]) => {
+    // Nothing flagged at all is as fine as it gets, if anything has been marked fine to say so.
+    if (sections.length === 0) {
+      return { tone: (fine.length > 0 ? "fine" : "unknown") as Verdict["tone"], reference: fine[0] ?? null, reaching: [] as Flagged[] };
+    }
+    const judged = sections.map((s) => ({ s, ...judgeSection(s) }));
+    const worst = judged.reduce((a, b) =>
+      ORDER.indexOf(b.tone) > ORDER.indexOf(a.tone) || (b.tone === a.tone && b.level > a.level) ? b : a,
+    );
+    const troubling = worst.tone === "beyond" || worst.tone === "difficult";
+    // The sections that reach the level of the stretch the verdict names.
+    const reaching = troubling
+      ? sections.filter((s) => {
+          const level = levelOf(worst.reference!, s);
+          return level !== null && s.robustScore >= level;
+        })
+      : [];
+    return { tone: worst.tone, reference: worst.reference, reaching };
+  };
+
+  const { tone, reference, reaching } = judge(analysis.sections);
+  const lengthAtOrAboveM = reaching.reduce((sum, s) => sum + s.lengthM, 0);
+  if (reaching.length === 0 || lengthAtOrAboveM > BRIEF_M) return { tone, reference, lengthAtOrAboveM, brief: null };
   // Only a spot or two reach that level: say so, and say how the route stands without them.
-  const spots = analysis.sections.filter((s) => s.robustScore >= level);
-  const rest = judge(analysis.sections.filter((s) => s.robustScore < level));
-  return { ...verdict, brief: { spots: spots.length, firstAtM: spots[0].startM, restTone: rest.tone } };
+  const rest = judge(analysis.sections.filter((s) => !reaching.includes(s)));
+  return { tone, reference, lengthAtOrAboveM, brief: { spots: reaching.length, firstAtM: reaching[0].startM, restTone: rest.tone } };
 }
 
 /** Sections whose scores differ by more than this are never called similar. */
@@ -105,6 +151,8 @@ export function profileOf(analysis: Analysis, startM: number, endM: number): Pro
     count++;
     if (p.context?.forest) wooded++;
     profile.score = Math.max(profile.score, p.score);
+    profile.dropScore = Math.max(profile.dropScore ?? 0, p.dropScore ?? 0);
+    profile.viewScore = Math.max(profile.viewScore ?? 0, p.viewScore ?? 0);
     profile.fallM = Math.max(profile.fallM, p.metrics.fallLeft, p.metrics.fallRight);
     profile.drop100M = Math.max(profile.drop100M, p.metrics.drop100);
     profile.crossSlopeDeg = Math.max(profile.crossSlopeDeg, p.metrics.crossSlopeDeg);

@@ -67,7 +67,8 @@ function stateUnder(entries: Entry[], marks: Mark[], settings: Settings) {
     const name = names.get(mark.analysisId) ?? "";
     const endM = mark.kind === "turned_back" ? mark.startM + TURNED_BACK_LOOKAHEAD_M : mark.endM;
     const profile = profileOf(analysis, mark.startM, endM);
-    if (profile) references.push({ ...mark, name, endM, profile, routeProfile: analysis.profile });
+    const cause = mark.kind !== "fine" && (mark.cause === "drops" || mark.cause === "view") ? mark.cause : null;
+    if (profile) references.push({ ...mark, name, endM, profile, routeProfile: analysis.profile, cause });
     if (mark.kind === "turned_back") continue;
     const { level, flaggedShare, disagreement } = judgeMark(analysis, mark.kind, mark.startM, mark.endM);
     if (disagreement === "overFlagged") overFlagged.push({ ...mark, name, level, flaggedShare });

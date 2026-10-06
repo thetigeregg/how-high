@@ -137,3 +137,46 @@ describe("judging a mark against the model", () => {
     expect(judgeMark(analysis, "uneasy", 0, 300).disagreement).toBe("missed");
   });
 });
+
+describe("verdict compares like with like", () => {
+  const section = (robustScore: number, lengthM: number, cause: "drops" | "view" | "both", startM = 0) => ({ robustScore, lengthM, cause, startM });
+  const route = (...sections: Array<ReturnType<typeof section>>) => ({ profile: "hike", sections }) as never;
+  const marked = (kind: Reference["kind"], cause: Reference["cause"], scores: { drops: number; view: number }): Reference => ({
+    ...reference(kind, { score: Math.max(scores.drops, scores.view), dropScore: scores.drops, viewScore: scores.view }),
+    routeProfile: "hike",
+    cause,
+  });
+  // Uneasy at a view the model scores 28; uneasy at a drop it scores 48; fine on a stretch with a
+  // wide view (49) but hardly any drop (9); and turned back, without saying why, at 81.
+  const marks = [
+    marked("uneasy", "view", { drops: 0, view: 28 }),
+    marked("uneasy", "drops", { drops: 48, view: 0 }),
+    marked("fine", null, { drops: 9, view: 49 }),
+    marked("turned_back", null, { drops: 81, view: 0 }),
+  ];
+
+  it("does not hold a drop against a stretch that was uneasy for its view", () => {
+    // Drops scoring 40: above the uneasy view (28), below the uneasy drop (48).
+    const verdict = verdictFor(route(section(40, 300, "drops")), marks)!;
+    expect(verdict.tone).not.toBe("difficult");
+  });
+
+  it("does not let a fine stretch vouch for drops it never had", () => {
+    // The fine stretch scored 49 for its view but only 9 for its drops, so drops of 40 are beyond what it shows was fine.
+    expect(verdictFor(route(section(40, 300, "drops")), marks)!.tone).toBe("unknown");
+    expect(verdictFor(route(section(8, 300, "drops")), marks)!.tone).toBe("fine");
+    expect(verdictFor(route(section(40, 300, "view")), marks)!.tone).toBe("difficult");
+  });
+
+  it("still holds any section against a stretch marked difficult without a single cause", () => {
+    expect(verdictFor(route(section(85, 300, "view")), marks)).toMatchObject({ tone: "beyond", reference: { kind: "turned_back" } });
+  });
+
+  it("judges what is left after a short spot by the same rule", () => {
+    // One 65 m spot at the level of the uneasy drop; three mild stretches of drop below it.
+    const verdict = verdictFor(route(section(64, 65, "drops", 5020), section(26, 10, "drops"), section(47, 125, "drops"), section(46, 135, "drops")), marks)!;
+    expect(verdict).toMatchObject({ tone: "difficult", lengthAtOrAboveM: 65, reference: { kind: "uneasy", cause: "drops" } });
+    // The mild stretches are not "difficult" on the strength of an uneasy view; they are simply not yet marked either way.
+    expect(verdict.brief).toEqual({ spots: 1, firstAtM: 5020, restTone: "unknown" });
+  });
+});

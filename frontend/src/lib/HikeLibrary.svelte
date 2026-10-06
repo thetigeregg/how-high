@@ -43,8 +43,12 @@
     beyond: "Harder than anything marked",
   };
   /** The forecast in a few words; a short spot or two is said as such, not as the character of the route. */
-  const forecastLabel = (f: Forecast) =>
-    f.brief ? `${REST[f.brief.restTone]}, ${f.brief.spots === 1 ? "one short spot" : `${f.brief.spots} short spots`}` : FORECAST[f.tone];
+  function forecastLabel(f: Forecast): string {
+    if (!f.brief) return FORECAST[f.tone];
+    const spots = f.brief.spots === 1 ? "one short spot" : `${f.brief.spots} short spots`;
+    const easierRest = f.brief.restTone === "fine" || f.brief.restTone === "unknown";
+    return `${REST[f.brief.restTone]}, ${easierRest ? "apart from" : "hardest in"} ${spots}`;
+  }
   const toneOf = (f: Forecast) => f.brief?.restTone ?? f.tone;
   /** Short stretches in metres, longer ones in kilometres. */
   const extent = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : km(m));

@@ -227,7 +227,13 @@
   function verdictTitle(verdict: Verdict): string {
     if (!verdict.brief) return VERDICT_TITLE[verdict.tone];
     const spots = verdict.brief.spots === 1 ? "one short spot" : `${verdict.brief.spots} short spots`;
-    return `${REST_TITLE[verdict.brief.restTone]}, apart from ${spots}`;
+    const rest = verdict.brief.restTone;
+    // "Apart from" only makes sense when the rest is easier in kind; where the
+    // rest is difficult too, the spots are simply where it is hardest.
+    if (rest === "fine" || rest === "unknown") return `${REST_TITLE[rest]}, apart from ${spots}`;
+    return verdict.tone === "beyond"
+      ? `${REST_TITLE[rest]}, with ${spots} harder than anything you have marked`
+      : `${REST_TITLE[rest]}, and hardest in ${spots}`;
   }
 
   /**
