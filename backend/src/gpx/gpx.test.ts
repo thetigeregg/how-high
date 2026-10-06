@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GridTerrain } from "../terrain/grid.js";
 import { parseGpx } from "./parse.js";
+import { writeGpx } from "./write.js";
 import { resample } from "./resample.js";
 
 describe("parseGpx", () => {
@@ -49,5 +50,52 @@ describe("GridTerrain", () => {
     expect(grid.elevation(10, 10)).toBeCloseTo(5);
     expect(grid.elevation(20, 10)).toBeCloseTo(15);
     expect(grid.elevation(-1, 10)).toBeNaN();
+  });
+});
+
+describe("writeGpx", () => {
+  const point = (dist: number, lat: number, lon: number, elevation: number | null) => ({
+    dist,
+    lat,
+    lon,
+    heading: [0, 1] as [number, number],
+    metrics: elevation === null ? null : ({ elevation } as never),
+    shifted: [null, null] as [null, null],
+    context: null,
+  });
+  const base = {
+    name: null,
+    lengthM: 20,
+    spacingM: 10,
+    terrain: { source: "t", cellSize: 2, confidence: "high" as const },
+    swiss: true,
+    mapContext: true,
+    params: {} as never,
+    points: [point(0, 47.1, 8.1, 500.26), point(10, 47.10009, 8.1, 501), point(20, 47.10018, 8.1, null)],
+  };
+
+  it("writes the measured line with elevations, readable as a GPX again", () => {
+    const gpx = writeGpx(base, "A & B <walk>", "https://maps.app.goo.gl/x?a=1&b=2");
+    expect(gpx).toContain("<name>A &amp; B &lt;walk&gt;</name>");
+    expect(gpx).toContain('<link href="https://maps.app.goo.gl/x?a=1&amp;b=2">');
+    expect(gpx).toContain('<trkpt lat="47.100000" lon="8.100000"><ele>500.3</ele></trkpt>');
+    // A point with no terrain under it is still on the line, just without a height.
+    expect(gpx).toContain('<trkpt lat="47.100180" lon="8.100000"></trkpt>');
+    const read = parseGpx(gpx);
+    expect(read.name).toBe("A & B <walk>");
+    expect(read.points).toEqual([{ lat: 47.1, lon: 8.1 }, { lat: 47.10009, lon: 8.1 }, { lat: 47.10018, lon: 8.1 }]);
+  });
+
+  it("writes one track per leg of a route, named for the leg", () => {
+    const gpx = writeGpx(
+      { ...base, legs: [{ mode: "rail", label: "Train R16", startM: 0, endM: 10 }, { mode: "walk", label: "Walk", startM: 20, endM: 20 }] },
+      "Chur to Arosa",
+      null,
+    );
+    expect(gpx.match(/<trk>/g)).toHaveLength(2);
+    expect(gpx).toContain("<name>1. Train R16</name>");
+    expect(gpx).toContain("<name>2. Walk</name>");
+    expect(gpx).not.toContain("<link");
+    expect(parseGpx(gpx).points).toHaveLength(3);
   });
 });

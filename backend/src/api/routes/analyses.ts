@@ -6,7 +6,9 @@ import { config } from "../../config.js";
 import { gpxSource, measureSource, type RouteSource } from "../../exposure/pipeline.js";
 import { parseDirectionsUrl, resolveLink } from "../../google/link.js";
 import { fetchRoute } from "../../google/routes.js";
+import type { Measurement } from "../../exposure/analyze.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
+import { writeGpx } from "../../gpx/write.js";
 import { dismiss, enqueue, isBeingReanalysed, listJobs, type JobControls } from "../../jobs.js";
 import {
   annotateSections,
@@ -96,7 +98,8 @@ function serialize(row: AnalysisRow) {
     kind: row.kind,
     sourceUrl: row.source_url,
     status: row.status,
-    // Whether the GPX file this was made from is still held and can be downloaded.
+    // Whether there is an uploaded GPX file to give back. Entries made from a
+    // link have none; for those a GPX is written from the measured line.
     hasGpx: fs.existsSync(gpxPath(row.id)),
   };
 }
@@ -264,18 +267,28 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // The GPX file a hike was made from, exactly as it was uploaded.
+  // The entry as a GPX file: the one it was made from, exactly as uploaded,
+  // or, for an entry made from a link, one written from the line that was measured.
   app.get("/api/analyses/:id/gpx", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     const row = id.success ? getRow(id.data) : undefined;
-    if (!row || !fs.existsSync(gpxPath(row.id))) return reply.status(404).send({ error: "no GPX file is held for this entry" });
+    if (!row) return reply.status(404).send({ error: "not found" });
+    let gpx: Buffer | string;
+    if (fs.existsSync(gpxPath(row.id))) {
+      gpx = fs.readFileSync(gpxPath(row.id));
+    } else {
+      const { result } = app.db.prepare("SELECT result FROM analyses WHERE id = ?").get(row.id) as { result: string };
+      const measurement = JSON.parse(result) as Measurement;
+      if (!measurement.points?.length) return reply.status(404).send({ error: "there is no line to export for this entry" });
+      gpx = writeGpx(measurement, row.name.trim() || "Untitled", row.source_url);
+    }
     // A plain-ASCII name for old clients, and the real one (accents and all) for the rest.
     const name = (row.name.trim() || "hike").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
     const ascii = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/"/g, "").trim() || "hike";
     return reply
       .header("Content-Type", "application/gpx+xml; charset=utf-8")
       .header("Content-Disposition", `attachment; filename="${ascii}.gpx"; filename*=UTF-8''${encodeURIComponent(`${name}.gpx`)}`)
-      .send(fs.readFileSync(gpxPath(row.id)));
+      .send(gpx);
   });
 
   // Measures the entry again from what it was made from, as a background job,

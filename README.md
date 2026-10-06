@@ -98,6 +98,11 @@ differ from what was on screen when the link was shared. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
 or road on the map.
 
+Anything made from a link can be exported as a GPX file (**Export GPX**):
+the line that was measured, a point every few metres, with the terrain
+elevation under each point and one track per leg. Hikes uploaded as GPX give
+back the original file instead.
+
 A **walking** link is treated as a hike: it is listed under Hikes, scored
 with the hike settings and compared with other hikes. The Hikes tab has its
 own link field for this. Google keeps to roads and easy paths on foot, so

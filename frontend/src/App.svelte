@@ -556,12 +556,18 @@
               {r.label}
             </button>
           {/each}
-          {#if detail.summary.hasGpx}
-            <a class="button spaced" href="/api/analyses/{detail.summary.id}/gpx" download>Download GPX</a>
-          {/if}
+          <a
+            class="button spaced"
+            href="/api/analyses/{detail.summary.id}/gpx"
+            download
+            title={detail.summary.hasGpx
+              ? "The GPX file exactly as you uploaded it"
+              : "A GPX file written from the line that was measured, with terrain elevations, for use in other apps"}
+          >
+            {detail.summary.hasGpx ? "Download GPX" : "Export GPX"}
+          </a>
           <button
             type="button"
-            class:spaced={!detail.summary.hasGpx}
             disabled={reanalysing || (reanalysis !== null && reanalysis.state !== "failed")}
             onclick={rerun}
           >
@@ -961,9 +967,6 @@
     vertical-align: middle;
     font-weight: 400;
     color: var(--text-muted);
-  }
-  button.spaced {
-    margin-left: 0.6rem;
   }
   button:disabled {
     cursor: progress;
