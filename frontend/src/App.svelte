@@ -15,6 +15,7 @@
     updateAnalysis,
     uploadGpx,
   } from "./api.js";
+  import EntryName from "./lib/EntryName.svelte";
   import ExposureProfile from "./lib/ExposureProfile.svelte";
   import HikeLibrary from "./lib/HikeLibrary.svelte";
   import LevelBadge from "./lib/LevelBadge.svelte";
@@ -229,21 +230,34 @@
     return `${REST_TITLE[verdict.brief.restTone]}, apart from ${spots}`;
   }
 
-  function verdictText(verdict: Verdict): string {
+  /**
+   * The forecast as a sentence, in the two parts either side of the name of
+   * the hike or route it refers to, so that the name can be set as a link.
+   * Without a reference the whole sentence is the first part.
+   */
+  function verdictText(verdict: Verdict): { before: string; after: string | null } {
     const ref = verdict.reference;
-    const where = ref ? `km ${(ref.startM / 1000).toFixed(2)} of ${ref.name || "an untitled hike"}, which ${VERDICT_WORD[ref.kind]}` : "";
+    // Between what was fine and what was not there is no one stretch to point to.
+    if (!ref || (verdict.tone === "unknown" && !verdict.brief)) {
+      return {
+        before: "It scores above everything you have marked fine, but below everything that bothered you. There is nothing to compare it with yet.",
+        after: null,
+      };
+    }
+    const where = `km ${(ref.startM / 1000).toFixed(2)} of `;
+    const which = `, which ${VERDICT_WORD[ref.kind]}.`;
     if (verdict.brief) {
       const metres = `${Math.round(verdict.lengthAtOrAboveM)} m`;
       const at = `${verdict.brief.spots === 1 ? "at" : "starting at"} km ${(verdict.brief.firstAtM / 1000).toFixed(2)}`;
       const reach = verdict.tone === "beyond" ? "scores above" : "reaches the level of";
-      return `${metres} ${at} ${reach} ${where}. ${REST_TEXT[verdict.brief.restTone]}`;
+      return { before: `${metres} ${at} ${reach} ${where}`, after: `${which} ${REST_TEXT[verdict.brief.restTone]}` };
     }
-    const length = `${km(verdict.lengthAtOrAboveM)} of this is at or above that level`;
-    if (verdict.tone === "beyond") return `Its worst stretch scores above ${where}. ${length}.`;
-    if (verdict.tone === "difficult") return `It reaches the level of ${where}. ${length}.`;
-    if (verdict.tone === "fine") return `Nothing here scores above ${where}.`;
-    return "It scores above everything you have marked fine, but below everything that bothered you. There is nothing to compare it with yet.";
+    const length = ` ${km(verdict.lengthAtOrAboveM)} of this is at or above that level.`;
+    if (verdict.tone === "beyond") return { before: `Its worst stretch scores above ${where}`, after: which + length };
+    if (verdict.tone === "difficult") return { before: `It reaches the level of ${where}`, after: which + length };
+    return { before: `Nothing here scores above ${where}`, after: which };
   }
+
 
   const markKinds: Array<{ value: MarkKind; label: string }> = [
     { value: "fine", label: "Fine" },
@@ -559,15 +573,13 @@
 
       {#if detail.verdict}
         {@const verdict = detail.verdict}
+        {@const text = verdictText(verdict)}
         <div class="verdict {verdict.brief?.restTone ?? verdict.tone}">
           <strong>{verdictTitle(verdict)}</strong>
           <span>
-            {verdictText(verdict)}
-            {#if verdict.reference}
+            {text.before}{#if verdict.reference && text.after !== null}
               {@const ref = verdict.reference}
-              <button type="button" class="quiet" onclick={() => select(ref.analysisId, { startM: ref.startM, endM: ref.endM })}>
-                Show that stretch
-              </button>
+              <EntryName name={ref.name} onclick={() => select(ref.analysisId, { startM: ref.startM, endM: ref.endM })} />{text.after}
             {/if}
           </span>
           <span class="basis">
@@ -908,11 +920,6 @@
   .verdict .basis {
     color: var(--text-muted);
     font-size: 0.8rem;
-  }
-  .verdict button {
-    padding: 0;
-    text-decoration: underline;
-    color: var(--accent);
   }
   .actions-label {
     color: var(--text-muted);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MarkKind, NoGoKind, Range, Section } from "../types.js";
+  import EntryName from "./EntryName.svelte";
   import LevelBadge from "./LevelBadge.svelte";
 
   let {
@@ -99,7 +100,8 @@
                 <span>You: {verdict(s.yourMark)}</span>
               {/if}
               {#each [{ lead: "Like", ref: s.similar }, { lead: "Scores higher than", ref: s.harderThan }] as { lead, ref }}
-                {#if ref}
+                {#if ref && ref.analysisId === analysisId}
+                  <!-- A stretch elsewhere on this same entry: no name to show, the whole phrase is the link. -->
                   <button
                     type="button"
                     class="similar"
@@ -108,8 +110,14 @@
                       onopen(ref.analysisId, { startM: ref.startM, endM: ref.endM });
                     }}
                   >
-                    {lead} km {km(ref.startM)} of {ref.analysisId === analysisId ? "this hike" : ref.name} ({verdict(ref.kind)})
+                    {lead} km {km(ref.startM)} of this one ({verdict(ref.kind)})
                   </button>
+                {:else if ref}
+                  <span>
+                    {lead} km {km(ref.startM)} of
+                    <EntryName name={ref.name} onclick={() => onopen(ref.analysisId, { startM: ref.startM, endM: ref.endM })} />
+                    ({verdict(ref.kind)})
+                  </span>
                 {/if}
               {/each}
             </td>
