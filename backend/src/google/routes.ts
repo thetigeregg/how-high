@@ -113,7 +113,9 @@ async function computeRoute(stops: Stop[], mode: TravelMode): Promise<ApiRoute> 
       destination: waypoint(stops[stops.length - 1]),
       intermediates: stops.slice(1, -1).map(waypoint),
       travelMode: mode,
-      ...(mode === "DRIVE" ? { polylineQuality: "HIGH_QUALITY" } : {}),
+      // The detailed line: points every 15 m or so, where the default leaves gaps
+      // of hundreds of metres that would be bridged by straight lines. Not offered for public transport.
+      ...(mode === "TRANSIT" ? {} : { polylineQuality: "HIGH_QUALITY" }),
     }),
     signal: AbortSignal.timeout(30_000),
   });

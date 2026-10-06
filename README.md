@@ -98,6 +98,12 @@ differ from what was on screen when the link was shared. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
 or road on the map.
 
+A **walking** link is treated as a hike: it is listed under Hikes, scored
+with the hike settings and compared with other hikes. The Hikes tab has its
+own link field for this. Google keeps to roads and easy paths on foot, so
+for a mountain trail a GPX from a hiking app follows the real path more
+closely.
+
 Google's line for a train ride is often a rough sketch that cuts across the
 terrain, so only its two ends are trusted: the ride is traced along the
 mapped track between them. Where no connected track is found, Google's line

@@ -133,7 +133,8 @@ export function registerAnalysesRoute(app: FastifyInstance) {
         measurement.terrain.source,
         measurement.terrain.confidence,
         JSON.stringify(measurement),
-        original ? "hike" : "route",
+        // A walking link is a hike like any other; only what it was made from differs.
+        source.profile === "hike" ? "hike" : "route",
         source.url,
       );
     const id = Number(lastInsertRowid);
@@ -177,7 +178,8 @@ export function registerAnalysesRoute(app: FastifyInstance) {
       return reply.status(400).send({ error: (err as Error).message });
     }
     // The link has been read and Google has answered by now, so a bad link is refused at once.
-    const job = enqueue({ kind: "route", label: source.name ?? "Route", reanalysisOf: null }, (controls) =>
+    const kind = source.profile === "hike" ? "hike" : "route";
+    const job = enqueue({ kind, label: source.name ?? "Route", reanalysisOf: null }, (controls) =>
       create(source, "Route", null, controls),
     );
     return reply.status(202).send(job);

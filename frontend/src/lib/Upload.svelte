@@ -60,16 +60,28 @@
   {/if}
 </button>
 <input bind:this={input} type="file" accept=".gpx,application/gpx+xml" hidden onchange={() => pick(input?.files)} />
-{:else if links}
+{/if}
+
+{#if links}
   <form onsubmit={submitLink}>
-    <label for="route-link"><strong>Add a route</strong> by car, bus or train</label>
+    <label for="route-link">
+      {#if kind === "hike"}
+        or paste a Google Maps <strong>walking</strong> link
+      {:else}
+        <strong>Add a route</strong> by car, bus or train
+      {/if}
+    </label>
     <div class="row">
       <input id="route-link" type="url" placeholder="Paste a Google Maps directions link" bind:value={link} disabled={busy} />
       <button type="submit" disabled={busy || link.trim() === ""}>Add</button>
     </div>
-    {#if busy}<span class="wait">Reading the link and asking Google for the route…</span>{/if}
+    {#if busy}
+      <span class="wait">Reading the link and asking Google for the route…</span>
+    {:else if kind === "hike"}
+      <span class="wait">Google walks along roads and easy paths; for a mountain trail a GPX follows the real path more closely.</span>
+    {/if}
   </form>
-{:else}
+{:else if kind === "route"}
   <p class="wait">Adding routes needs a Google Maps API key; see the README.</p>
 {/if}
 

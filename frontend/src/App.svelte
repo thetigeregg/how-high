@@ -466,6 +466,12 @@
               <a href={detail.summary.sourceUrl} target="_blank" rel="noreferrer">Open in Google Maps</a>
             {/if}
           </p>
+          {#if detail.summary.kind === "hike" && detail.summary.sourceUrl}
+            <p class="note">
+              Made from a Google Maps walking link: this is the way Google suggests on foot now, which keeps to roads
+              and easy paths where it can.
+            </p>
+          {/if}
           {#if detail.summary.kind === "route"}
             <ol class="legs">
               {#each result.legs as leg}
