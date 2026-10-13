@@ -4,7 +4,7 @@ import { lv95, type Projection } from "../geo/projection.js";
 import { resample } from "../gpx/resample.js";
 import type { Terrain } from "../terrain/grid.js";
 import { DEFAULT_SETTINGS, settingsSchema } from "../settings.js";
-import { analyzeTrack, measure, score } from "./analyze.js";
+import { analyzeTrack, measure, measurePoints, score } from "./analyze.js";
 import { DEFAULT_MEASURE, measureTrack } from "./metrics.js";
 import { DEFAULT_PARAMS, fallAwayDeg, findRuns, scorePoint } from "./score.js";
 
@@ -137,6 +137,21 @@ describe("map context", () => {
       context: context({ pathAt: () => ({ ...path, tunnel: true }) }),
     });
     expect(analysis.sections).toEqual([]);
+  });
+
+  it("sees nothing from inside a tunnel", () => {
+    // A ridge with a valley 500 m below on either side; the track runs along its crest.
+    const rim = ground((x) => Math.max(500, 1000 - Math.abs(x) * 10));
+    const track = northbound(0);
+    const along = (tunnel: boolean) => {
+      const mapped = context({ pathAt: () => ({ ...path, tunnel }) });
+      const points = measurePoints(rim, track, identity, mapped, DEFAULT_MEASURE, () => "road", rim);
+      return score({ ...measure(rim, track, identity, { context: mapped }), points }, { ...DEFAULT_SETTINGS.road, viewFactor: 1 });
+    };
+    expect(middle(along(false).points).viewScore).toBeGreaterThan(50);
+    const inside = along(true);
+    expect(inside.points.every((p) => p.score === 0 && p.viewScore === 0 && p.viewDepthM === null)).toBe(true);
+    expect(inside.sections).toEqual([]);
   });
 
   it("keeps a bridge the map confirms and drops one it disproves", () => {

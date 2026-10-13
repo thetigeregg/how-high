@@ -535,7 +535,9 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     if (!p.metrics) return { ...UNSCORED, dist, lon, lat };
     // The view is measured every so often; each point takes the latest one before it.
     if (p.view !== undefined) view = p.view;
-    const viewScore = scoreView(view, params);
+    // Nothing is seen from inside a tunnel; what was measured there is the view from the mountainside above it.
+    const seen = context?.tunnel ? null : view;
+    const viewScore = scoreView(seen, params);
     // The terrain-only bridge guess is dropped where the map shows a path that is not a bridge.
     const disproved = context !== null && context.matched && !context.bridge;
     const settle = (m: PointMetrics) => (disproved ? { ...m, bridgeGap: 0 } : m);
@@ -557,7 +559,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
       rawScore,
       dropScore,
       viewScore,
-      viewDepthM: view ? viewDepth(view, params) : null,
+      viewDepthM: seen ? viewDepth(seen, params) : null,
       context,
       scoreLow: Math.min(...variants),
       scoreHigh: Math.max(...variants),
