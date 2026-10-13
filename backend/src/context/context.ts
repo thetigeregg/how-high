@@ -64,7 +64,8 @@ function describePath(tags: Record<string, string>): PathInfo {
   const set = (key: string) => tags[key] !== undefined && tags[key] !== "no";
   const width = Number.parseFloat(tags.width ?? "");
   return {
-    tunnel: set("tunnel") || tags.covered === "yes",
+    // An avalanche gallery is roofed but open to the valley, so the drop beside it is in full view.
+    tunnel: set("tunnel") && tags.tunnel !== "avalanche_protector",
     bridge: set("bridge"),
     wide: WIDE_HIGHWAYS.has(tags.highway) || ROADS.test(tags.highway ?? "") || width >= 2.5,
     sacGrade: SAC_GRADES[tags.sac_scale] ?? null,

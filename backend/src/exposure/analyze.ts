@@ -121,8 +121,9 @@ export interface Analysis {
  * 4: incomplete answers from the map servers are no longer used.
  * 5: the 10 m and 100 m drops are measured for each side separately.
  * 6: the view from the route is measured.
+ * 7: avalanche galleries and other roofed ways open at the side no longer count as tunnels.
  */
-export const MEASURE_VERSION = 6;
+export const MEASURE_VERSION = 7;
 
 /** The view changes slowly along a route, so it is measured only this often, meters. */
 const VIEW_EVERY_M = 25;

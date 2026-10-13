@@ -201,6 +201,18 @@ describe("buildContext", () => {
     expect(context.pathAt(...at(47.002, 8.00005), "road")).toBeNull();
     expect(context.pathAt(...at(47.002, 8.00395), "rail")).toBeNull();
   });
+
+  it("takes a tunnel for one only where it is closed on both sides", () => {
+    const road = (tags: Record<string, string>) =>
+      buildContext(
+        [{ type: "way", tags: { highway: "secondary", ...tags }, geometry: [{ lat: 47.0, lon: 8.0 }, { lat: 47.004, lon: 8.0 }] }],
+        projection,
+        { minX: x0 - 200, minY: y0 - 200, maxX: x0 + 600, maxY: y0 + 700 },
+      ).pathAt(...at(47.002, 8.0), "road");
+    expect(road({ tunnel: "yes" })?.tunnel).toBe(true);
+    expect(road({ tunnel: "avalanche_protector" })?.tunnel).toBe(false);
+    expect(road({ covered: "yes" })?.tunnel).toBe(false);
+  });
 });
 
 describe("settings", () => {
