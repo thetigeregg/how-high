@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseDirectionsUrl } from "./link.js";
-import { decodePolyline, transitLegs } from "./routes.js";
+import { decodePolyline, planFor, transitLegs } from "./routes.js";
 
 describe("parseDirectionsUrl", () => {
   it("reads stops, exact coordinates and travel mode from a shared directions link", () => {
@@ -65,6 +65,14 @@ describe("parseDirectionsUrl", () => {
     expect(directions.mode).toBe("WALK");
   });
 
+  it("reads the time a public-transport trip was planned for", () => {
+    const blob = (timing: string) =>
+      `https://www.google.com/maps/dir/A/B/@47.3,8.4,9z/am=t/data=!4m19!4m18!1m5!1m1!1sx!2m2!1d8.5403767!2d47.3780356!1m5!1m1!1sy!2m2!1d9.5210732!2d47.1410843!2m3!6e${timing}!7e2!8j1791968400!3e3!5i1?entry=tts`;
+    expect(parseDirectionsUrl(blob("0")).time).toEqual({ kind: "departure", clock: 1791968400 });
+    expect(parseDirectionsUrl(blob("1")).time).toEqual({ kind: "arrival", clock: 1791968400 });
+    expect(parseDirectionsUrl("https://www.google.ch/maps/dir/Thusis/Tiefencastel/").time).toBeNull();
+  });
+
   it("explains links it cannot use", () => {
     expect(() => parseDirectionsUrl("https://example.com/maps/dir/A/B")).toThrow(/not a Google Maps link/);
     expect(() => parseDirectionsUrl("https://www.google.com/maps/place/Bern")).toThrow(/not a route/);
@@ -82,6 +90,19 @@ describe("Google routes", () => {
       { lat: 40.7, lon: -120.95 },
       { lat: 43.252, lon: -126.453 },
     ]);
+  });
+
+  it("plans for the clock time of a link in the time zone of the place", () => {
+    // 09:00 on Wednesday, October 14, 2026, as a link writes it.
+    const time = { kind: "departure" as const, clock: 1791968400 };
+    const before = new Date("2026-10-13T12:00:00Z");
+    expect(planFor(time, "Europe/Zurich", before).toISOString()).toBe("2026-10-14T07:00:00.000Z");
+    expect(planFor(time, "America/New_York", before).toISOString()).toBe("2026-10-14T13:00:00.000Z");
+    // Once it has passed: the next Wednesday at 09:00, which is after the clocks go back.
+    expect(planFor(time, "Europe/Zurich", new Date("2026-10-22T12:00:00Z")).toISOString()).toBe("2026-10-28T08:00:00.000Z");
+    // Too far ahead for Google: an earlier Wednesday at 09:00.
+    const early = planFor(time, "Europe/Zurich", new Date("2026-05-01T12:00:00Z"));
+    expect(early.toISOString()).toBe("2026-07-29T07:00:00.000Z");
   });
 
   it("builds legs from transit steps, joining walks and marking no-go transport", () => {

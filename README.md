@@ -100,8 +100,13 @@ applies to all hikes at once.
 
 A shared link only says where the route starts and ends and how it is
 traveled, not which line it follows. The app asks Google's Routes API for
-the route and scores that, so it is Google's current suggestion and can
-differ from what was on screen when the link was shared. Public-transport
+the route and scores that, so it is what Google offers now and can differ
+from what was on screen when the link was shared. Where Google offers
+several routes, they are listed to pick one from; it offers none besides
+its first choice for a route with stops in between or one dragged into
+shape. A public-transport link shared with "depart at" or "arrive by" is
+planned for that weekday and time of day, in the coming week if the date
+has passed. Public-transport
 routes are split into legs (train, bus, walk), each matched to the railway
 or road on the map.
 

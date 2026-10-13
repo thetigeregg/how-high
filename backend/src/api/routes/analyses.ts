@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -5,7 +6,7 @@ import { z } from "zod";
 import { config } from "../../config.js";
 import { gpxSource, measureSource, type RouteSource } from "../../exposure/pipeline.js";
 import { parseDirectionsUrl, resolveLink } from "../../google/link.js";
-import { fetchRoute } from "../../google/routes.js";
+import { fetchRoutes, type RouteOption } from "../../google/routes.js";
 import type { Measurement } from "../../exposure/analyze.js";
 import { parseGpx, type GpxTrack } from "../../gpx/parse.js";
 import { writeGpx } from "../../gpx/write.js";
@@ -173,18 +174,50 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     return reply.status(202).send(job);
   });
 
-  // A route from a shared Google Maps directions link.
+  // Routes Google offered for a link, held until one of them is picked.
+  const offers = new Map<string, { options: RouteOption[]; expires: number }>();
+  const OFFER_TTL_MS = 30 * 60_000;
+  const routeSchema = z.union([
+    z.object({ url: z.string().trim().min(1).max(4000) }),
+    z.object({ offer: z.string().uuid(), option: z.number().int().nonnegative() }),
+  ]);
+
+  // A route from a shared Google Maps directions link. Where Google offers
+  // several, they are sent back to pick from and the pick is posted here again.
   app.post("/api/routes", async (request, reply) => {
-    const parsed = z.object({ url: z.string().trim().min(1).max(4000) }).safeParse(request.body);
+    const parsed = routeSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: "paste a Google Maps link" });
     if (!config.googleMapsApiKey) return reply.status(503).send({ error: "Google Maps links are not set up (no API key)" });
 
     let source: RouteSource;
-    try {
-      const full = await resolveLink(parsed.data.url);
-      source = await fetchRoute(parseDirectionsUrl(full), parsed.data.url);
-    } catch (err) {
-      return reply.status(400).send({ error: (err as Error).message });
+    if ("offer" in parsed.data) {
+      const offer = offers.get(parsed.data.offer);
+      const picked = offer && offer.expires > Date.now() ? offer.options[parsed.data.option] : undefined;
+      if (!picked) return reply.status(410).send({ error: "Those routes are no longer held; paste the link again." });
+      offers.delete(parsed.data.offer);
+      source = picked.source;
+    } else {
+      let options: RouteOption[], planned: string | null;
+      try {
+        const full = await resolveLink(parsed.data.url);
+        ({ options, planned } = await fetchRoutes(parseDirectionsUrl(full), parsed.data.url));
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+      if (options.length > 1) {
+        for (const [id, offer] of offers) if (offer.expires <= Date.now()) offers.delete(id);
+        const id = randomUUID();
+        offers.set(id, { options, expires: Date.now() + OFFER_TTL_MS });
+        return reply.send({
+          offer: {
+            id,
+            name: options[0].source.name,
+            planned,
+            options: options.map(({ label, distanceM, durationS }) => ({ label, distanceM, durationS })),
+          },
+        });
+      }
+      source = options[0].source;
     }
     // The link has been read and Google has answered by now, so a bad link is refused at once.
     const kind = source.profile === "hike" ? "hike" : "route";

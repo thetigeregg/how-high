@@ -313,6 +313,16 @@ export interface ImportSummary {
 }
 
 /** A hike or route being measured in the background. */
+/** Several routes Google offers for one link, to pick one from. */
+export interface RouteOffer {
+  id: string;
+  name: string | null;
+  /** In words, when public transport was planned for, if the link said. */
+  planned: string | null;
+  /** Google's first choice first. */
+  options: Array<{ label: string; distanceM: number | null; durationS: number | null }>;
+}
+
 export interface Job {
   id: number;
   kind: "hike" | "route";

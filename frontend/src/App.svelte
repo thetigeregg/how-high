@@ -10,6 +10,7 @@
     fetchAnalyses,
     fetchAnalysis,
     fetchMeta,
+    pickRoute,
     reanalyze,
     setMarkCause,
     updateAnalysis,
@@ -20,6 +21,7 @@
   import HikeLibrary from "./lib/HikeLibrary.svelte";
   import LevelBadge from "./lib/LevelBadge.svelte";
   import { km, LEVEL_COLOR, LEVEL_LABEL, LEVELS, pointLevels } from "./lib/levels.js";
+  import RouteChoice from "./lib/RouteChoice.svelte";
   import RouteMap from "./lib/RouteMap.svelte";
   import SectionList from "./lib/SectionList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
@@ -34,6 +36,7 @@
     MarkKind,
     Range,
     Rating,
+    RouteOffer,
     SideSummary,
     Status,
     Verdict,
@@ -107,15 +110,29 @@
   const pendingHere = $derived(jobs.filter((j) => j.reanalysisOf === null && j.kind === tab && j.state !== "done"));
   const reanalysis = $derived(detail ? (jobs.find((j) => j.reanalysisOf === detail!.summary.id && j.state !== "done") ?? null) : null);
 
-  async function add(start: () => Promise<Job>) {
+  // Routes Google offers for the link just pasted, while one is still to be picked.
+  let offer = $state<RouteOffer | null>(null);
+
+  async function add(start: () => Promise<Job | { offer: RouteOffer }>) {
     uploading = true;
+    offer = null;
     await run(async () => {
       const job = await start();
+      if ("offer" in job) {
+        offer = job.offer;
+        return;
+      }
       startedHere.add(job.id);
       jobs = [...jobs, job];
       tab = job.kind;
     });
     uploading = false;
+  }
+
+  function pick(option: number) {
+    // Read before adding, which puts the offer away.
+    const id = offer?.id;
+    if (id) void add(() => pickRoute(id, option));
   }
 
   /** Asks the server how the jobs are getting on, and takes in whatever has finished since last time. */
@@ -454,6 +471,9 @@
       onfile={(file) => add(() => uploadGpx(file))}
       onlink={(url) => add(() => addRoute(url))}
     />
+    {#if offer}
+      <RouteChoice {offer} busy={uploading} onpick={pick} oncancel={() => (offer = null)} />
+    {/if}
     <HikeLibrary
       analyses={listed}
       pending={pendingHere}
@@ -532,7 +552,8 @@
               </div>
             {/if}
             <p class="note">
-              This is the route Google suggests now; it can differ from the one shown when the link was shared. Roads
+              This is a route Google offered when the link was added here; it can differ from the one shown when the
+              link was shared. Roads
               and railways are scored from the terrain beside them: guardrails and which side you sit on are not known.
             </p>
             {#if result.summary.noDataM > 0}

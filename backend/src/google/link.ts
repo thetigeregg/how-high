@@ -12,12 +12,26 @@ export interface Stop {
 
 export type TravelMode = "DRIVE" | "BICYCLE" | "WALK" | "TRANSIT";
 
+/**
+ * When a trip was planned for, as the link gives it: what the clock at the
+ * place shows, with no word on the time zone.
+ */
+export interface TripTime {
+  kind: "departure" | "arrival";
+  /** Seconds since 1970 as if that clock ran on UTC. */
+  clock: number;
+}
+
 export interface Directions {
   stops: Stop[];
   mode: TravelMode;
+  /** Set when the link was shared with "depart at" or "arrive by". */
+  time: TripTime | null;
 }
 
 // Google encodes the travel mode in the link's data blob as "!3e<digit>".
+// "Depart at" and "arrive by" are "!6e<digit>" next to the time, "!8j<seconds>".
+const BLOB_TIMES: Record<string, TripTime["kind"]> = { "0": "departure", "1": "arrival" };
 const BLOB_MODES: Record<string, TravelMode> = { "0": "DRIVE", "1": "BICYCLE", "2": "WALK", "3": "TRANSIT" };
 const QUERY_MODES: Record<string, TravelMode> = { driving: "DRIVE", bicycling: "BICYCLE", walking: "WALK", transit: "TRANSIT" };
 const LAT_LNG = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
@@ -64,13 +78,19 @@ function latLngIn(items: Item[] | undefined): [number, number] | null {
 
 /**
  * What the data part of a directions link says: for each stop its exact
- * position and the points the route was dragged through after it, and the
- * travel mode. Null where the data does not have the expected shape.
+ * position and the points the route was dragged through after it, the travel
+ * mode, and the time it was planned for. Null where the data does not have
+ * the expected shape.
  */
-function readBlob(blob: string): { stops: Array<{ latLng: [number, number] | null; via: Array<[number, number]> }>; mode: string | null } | null {
+function readBlob(
+  blob: string,
+): { stops: Array<{ latLng: [number, number] | null; via: Array<[number, number]> }>; mode: string | null; time: TripTime | null } | null {
   const tokens = blob.replace(/^data=/, "").split("!").filter(Boolean);
   const directions = child(child(readItems(tokens, 0, tokens.length), 4, "m")?.inside ?? [], 4, "m")?.inside;
   if (!directions) return null;
+  const timing = child(directions, 2, "m")?.inside ?? [];
+  const kind = BLOB_TIMES[child(timing, 6, "e")?.value ?? ""];
+  const clock = Number(child(timing, 8, "j")?.value);
   return {
     stops: directions
       .filter((item) => item.id === 1 && item.type === "m")
@@ -84,6 +104,7 @@ function readBlob(blob: string): { stops: Array<{ latLng: [number, number] | nul
           }),
       })),
     mode: child(directions, 3, "e")?.value ?? null,
+    time: kind && Number.isFinite(clock) ? { kind, clock } : null,
   };
 }
 
@@ -109,6 +130,7 @@ export function parseDirectionsUrl(input: string): Directions {
     return {
       stops: [origin, ...between, destination].map(stop),
       mode: QUERY_MODES[url.searchParams.get("travelmode") ?? ""] ?? "DRIVE",
+      time: null,
     };
   }
 
@@ -142,7 +164,7 @@ export function parseDirectionsUrl(input: string): Directions {
       stops[i].via = described.via;
     });
   }
-  return { stops, mode: BLOB_MODES[data?.mode ?? /!3e(\d)/.exec(blob)?.[1] ?? ""] ?? "DRIVE" };
+  return { stops, mode: BLOB_MODES[data?.mode ?? /!3e(\d)/.exec(blob)?.[1] ?? ""] ?? "DRIVE", time: data?.time ?? null };
 }
 
 /** Follows a shared short link (maps.app.goo.gl/…) to the full URL behind it. */

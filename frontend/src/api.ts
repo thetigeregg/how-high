@@ -11,6 +11,7 @@ import type {
   Proposal,
   Range,
   Rating,
+  RouteOffer,
   Settings,
   SettingsResponse,
   Status,
@@ -81,12 +82,24 @@ export function deleteMark(analysisId: number, markId: number): Promise<void> {
   return request(`/api/analyses/${analysisId}/marks/${markId}`, { method: "DELETE" });
 }
 
-/** A route from a shared Google Maps directions link. */
-export function addRoute(url: string): Promise<Job> {
+/**
+ * A route from a shared Google Maps directions link. Measuring starts at
+ * once, unless Google offers several routes: then they come back to pick from.
+ */
+export function addRoute(url: string): Promise<Job | { offer: RouteOffer }> {
   return request("/api/routes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
+  });
+}
+
+/** Starts measuring one of the routes Google offered for a link. */
+export function pickRoute(offer: string, option: number): Promise<Job> {
+  return request("/api/routes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ offer, option }),
   });
 }
 
