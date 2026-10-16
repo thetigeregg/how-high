@@ -122,8 +122,9 @@ export interface Analysis {
  * 5: the 10 m and 100 m drops are measured for each side separately.
  * 6: the view from the route is measured.
  * 7: avalanche galleries and other roofed ways open at the side no longer count as tunnels.
+ * 8: routes in the US are measured on USGS lidar where it covers them.
  */
-export const MEASURE_VERSION = 7;
+export const MEASURE_VERSION = 8;
 
 /** The view changes slowly along a route, so it is measured only this often, meters. */
 const VIEW_EVERY_M = 25;

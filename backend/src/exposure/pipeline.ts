@@ -9,6 +9,7 @@ import { logger } from "../logger.js";
 import type { Terrain } from "../terrain/grid.js";
 import { loadSwissTerrain } from "../terrain/swissalti.js";
 import { FAR, loadTerrariumTerrain } from "../terrain/terrarium.js";
+import { loadUsgsTerrain } from "../terrain/usgs.js";
 import { VIEW_RADIUS_M } from "./view.js";
 import { MEASURE_VERSION, measurePoints, TRAVEL_KIND, type Leg, type LegMode, type MeasuredPoint, type Measurement, type Profile } from "./analyze.js";
 import { DEFAULT_MEASURE, type MeasureParams, type PointMetrics } from "./metrics.js";
@@ -40,9 +41,15 @@ export function gpxSource(gpx: GpxTrack): RouteSource {
 const TERRAIN_BUFFER_M = 250;
 /** Forest is fetched this far around the track. */
 const CONTEXT_BUFFER_M = 100;
-/** Swiss data is abandoned for the global fallback past this share of gaps (hikes only). */
-const MAX_SWISS_GAP_SHARE = 0.02;
-/** Point spacing in meters by profile: [with Swiss terrain, with global terrain]. */
+/** Swiss (hikes only) or US lidar data is abandoned for the global fallback past this share of gaps. */
+const MAX_GAP_SHARE = 0.02;
+/** Rough [west, south, east, north] boxes of the contiguous US, Alaska and Hawaii, where USGS lidar is looked for. */
+const US_BOXES: Array<[number, number, number, number]> = [
+  [-125, 24.4, -66.9, 49.4],
+  [-170, 51, -129, 71.5],
+  [-161, 18.8, -154.7, 22.4],
+];
+/** Point spacing in meters by profile: [with Swiss or US lidar terrain, with global terrain]. */
 const SPACING: Record<Profile, [number, number]> = { hike: [5, 15], road: [10, 20] };
 // Long routes are measured in pieces so only the terrain and map data for one
 // piece is in memory at a time. Pieces overlap so that measurements which
@@ -165,7 +172,7 @@ function measureBridgeDecks(points: MeasuredPoint[]) {
 export interface MeasureOptions {
   /** Give map context only a few seconds before measuring without it. */
   quickContext?: boolean;
-  /** Use the global terrain even inside Switzerland. */
+  /** Use the global terrain even inside Switzerland or the US. */
   forceGlobal?: boolean;
   /** For reporting progress to, and taking a cancellation from, a background job. */
   controls?: JobControls;
@@ -188,12 +195,14 @@ export async function measureSource(
   };
   const all = source.legs.flatMap((leg) => leg.points);
   const swiss = !forceGlobal && all.every(({ lon, lat }) => lon > 5.8 && lon < 10.6 && lat > 45.7 && lat < 47.9);
+  const us = !forceGlobal && !swiss && US_BOXES.some(([w, s, e, n]) => all.every(({ lon, lat }) => lon > w && lon < e && lat > s && lat < n));
+  const fineTerrain = swiss || us;
   const lons = all.map((p) => p.lon);
   const lats = all.map((p) => p.lat);
   const projection = swiss
     ? lv95
     : localProjection((Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2);
-  const spacing = SPACING[source.profile][swiss ? 0 : 1];
+  const spacing = SPACING[source.profile][fineTerrain ? 0 : 1];
   let mapContext = true;
 
   const sourceLegs: SourceLeg[] = [];
@@ -249,10 +258,19 @@ export async function measureSource(
     const to = Math.min(track.length, end + CHUNK_OVERLAP);
     const piece = track.slice(from, to);
     const xy = piece.map((p): [number, number] => [p.x, p.y]);
-    const terrain: Terrain = swiss
-      ? await loadSwissTerrain(xy, TERRAIN_BUFFER_M)
-      : await loadTerrariumTerrain(xy, projection, TERRAIN_BUFFER_M);
-    terrainInfo ??= { source: terrain.source, cellSize: terrain.cellSize, confidence: swiss ? "high" : "low" };
+    let terrain: Terrain;
+    if (swiss) terrain = await loadSwissTerrain(xy, TERRAIN_BUFFER_M);
+    else if (!us) terrain = await loadTerrariumTerrain(xy, projection, TERRAIN_BUFFER_M);
+    else {
+      try {
+        terrain = await loadUsgsTerrain(xy, projection, TERRAIN_BUFFER_M);
+      } catch (err) {
+        if (err instanceof Canceled) throw err;
+        logger.warn({ err: (err as Error).message }, "USGS lidar unavailable; measuring on global terrain");
+        return measureSource(source, params, { ...options, forceGlobal: true });
+      }
+    }
+    terrainInfo ??= { source: terrain.source, cellSize: terrain.cellSize, confidence: fineTerrain ? "high" : "low" };
     // In quick mode one failure is taken as the servers being down: the rest
     // of the route is not held up asking again, and the background retry fills it in.
     if (!(quickContext && !mapContext)) report({ stage: `Fetching map data${of}` });
@@ -271,10 +289,11 @@ export async function measureSource(
   }
   report({ stage: "Finishing", done: pieces, total: pieces });
 
-  // Border hikes: where swisstopo has too many gaps, the coarser global data is the better picture.
-  if (swiss && source.profile === "hike") {
+  // Border hikes, and US routes beyond lidar coverage: where the fine data has too many gaps,
+  // the coarser global data is the better picture, and keeps the whole route at one resolution.
+  if ((swiss && source.profile === "hike") || us) {
     const gaps = points.filter((p) => p.metrics === null).length;
-    if (gaps / points.length > MAX_SWISS_GAP_SHARE) return measureSource(source, params, { ...options, forceGlobal: true });
+    if (gaps / points.length > MAX_GAP_SHARE) return measureSource(source, params, { ...options, forceGlobal: true });
   }
 
   measureBridgeDecks(points);

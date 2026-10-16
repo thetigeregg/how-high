@@ -67,8 +67,9 @@ on arrival.
 
 ## How the score works
 
-The track is resampled to a point every 5 m (15 m outside Switzerland). At
-each point the terrain around it is measured:
+The track is resampled to a point every 5 m (15 m where only the global
+terrain is available, see Data sources). At each point the terrain around it
+is measured:
 
 - **Fall height**: height lost following the steepest line down from beside
   the path, for as long as the ground stays steep.
@@ -129,7 +130,7 @@ scored rather than rated on terrain the train never crosses. Google does not acc
 transport, so such a route is fetched stop to stop and joined.
 
 A long route downloads terrain for its whole length the first time, about
-1 MB per km in Switzerland, which can take several minutes. Adding and
+1 MB per km in Switzerland or on US lidar, which can take several minutes. Adding and
 re-analyzing therefore run in the background: the entry appears in the
 sidebar as pending, with a progress bar counting the roughly 5 km pieces it
 is measured in, and can be canceled. One is measured at a time and the
@@ -182,6 +183,12 @@ check for yourself.
   2 m elevation model, © swisstopo.
 - **Distant terrain for views**: the same global tiles as below, at about
   30 m, everywhere.
+- **Terrain in the US**: [USGS 3DEP](https://www.usgs.gov/3d-elevation-program)
+  1 m lidar elevation model, read at 2 m so it measures the same as in
+  Switzerland, courtesy of the U.S. Geological Survey. Only the parts a route
+  needs are fetched from each file. It does not cover everywhere yet; a
+  route with more than 2% of its points outside it, or measured while the
+  USGS servers cannot be reached, is measured on the global tiles instead.
 - **Terrain elsewhere**: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/),
   roughly 10 to 30 m. Good for steep mountainsides, blind to small cliffs;
   results are labeled as low confidence.
@@ -194,7 +201,7 @@ check for yourself.
   elsewhere.
 
 Terrain tiles and map data are cached under `DATA_PATH`, about 1 MB per km²
-of Swiss terrain a route touches.
+of Swiss or US lidar terrain a route touches.
 
 ## Development
 
@@ -215,7 +222,7 @@ cd frontend && npm install && npm run dev    # page on :5173, proxies /api to :3
 backend/src/
   exposure/   measuring terrain, scoring, sectioning, comparing stretches;
               pipeline.ts runs it over a whole route in pieces
-  terrain/    swissALTI3D and global terrain loading
+  terrain/    swissALTI3D, USGS lidar and global terrain loading
   context/    OpenStreetMap fetch and lookups
   gpx/        GPX parsing and resampling
   google/     Google Maps link parsing and route fetching
