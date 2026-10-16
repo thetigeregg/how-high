@@ -229,7 +229,7 @@
     {
       title: "Advanced",
       advanced: true,
-      intro: "The first four change what is measured, so every hike is measured again when they change. That takes a few seconds per hike.",
+      intro: "The first four change what is measured, so every hike is measured again in the background when they change, a few seconds per hike. The list shows how far it has got.",
       knobs: [
         {
           group: "measure",

@@ -7,7 +7,7 @@ import { gpxSource, measureSource, type RouteSource } from "./exposure/pipeline.
 import { judgeMark, mostSimilar, profileOf, verdictFor, type MarkKind, type Reference } from "./exposure/compare.js";
 import { LEVELS, type Level } from "./exposure/score.js";
 import { parseGpx } from "./gpx/parse.js";
-import type { JobControls } from "./jobs.js";
+import { enqueue, isBeingReanalyzed, type JobControls } from "./jobs.js";
 import { logger } from "./logger.js";
 import { loadSettings, type Settings } from "./settings.js";
 
@@ -100,18 +100,48 @@ export function retryContextLater(db: Database.Database, id: number, attempt = 0
   ).unref();
 }
 
+// Entries whose automatic re-measure failed or was canceled, with what it was
+// catching up with. They are not queued again until that changes (or the
+// server restarts), or every page load would start the same failure over.
+const catchUpStopped = new Map<number, string>();
+
 /**
- * The stored measurement for a hike, measured again first if it was taken
- * with other measurement settings (or predates measurements being stored).
+ * Queues a background job measuring an entry again because it was measured
+ * with other measurement settings or by an older version. The job shows up
+ * like any re-analysis, so the page can show its progress.
+ */
+function measureLater(db: Database.Database, id: number, settings: Settings) {
+  const target = JSON.stringify([MEASURE_VERSION, settings.measure]);
+  if (isBeingReanalyzed(id) || catchUpStopped.get(id) === target) return;
+  const row = db.prepare("SELECT name, kind FROM analyses WHERE id = ?").get(id) as { name: string; kind: string } | undefined;
+  if (!row) return;
+  logger.info({ id }, "measuring again: settings or the way of measuring changed");
+  enqueue({ kind: row.kind === "route" ? "route" : "hike", label: row.name, reanalysisOf: id }, async (controls) => {
+    // Deleted while it waited its turn.
+    if (!db.prepare("SELECT 1 FROM analyses WHERE id = ?").get(id) || !hasSource(id)) return id;
+    try {
+      const measurement = await remeasure(db, id, loadSettings(db), controls);
+      if (!measurement.mapContext) retryContextLater(db, id);
+    } catch (err) {
+      catchUpStopped.set(id, target);
+      throw err;
+    }
+    return id;
+  });
+}
+
+/**
+ * The stored measurement for a hike. One taken with other measurement
+ * settings or by an older version is still returned, so nothing waits on it,
+ * and is queued to be measured again in the background.
  */
 export async function loadMeasurement(db: Database.Database, id: number, settings: Settings): Promise<Measurement | null> {
   const row = db.prepare("SELECT result FROM analyses WHERE id = ?").get(id) as { result: string } | undefined;
   if (!row) return null;
   const stored = JSON.parse(row.result) as Measurement;
   const current = sameParams(stored.params, settings.measure) && stored.version === MEASURE_VERSION;
-  if (current || !hasSource(id)) return stored;
-  logger.info({ id }, "measuring again: settings or the way of measuring changed");
-  return remeasure(db, id, settings);
+  if (!current && hasSource(id)) measureLater(db, id, settings);
+  return stored;
 }
 
 export async function loadAnalysis(db: Database.Database, id: number, settings = loadSettings(db)): Promise<Analysis | null> {
@@ -120,7 +150,10 @@ export async function loadAnalysis(db: Database.Database, id: number, settings =
   return measurement?.params ? scoreWith(measurement, settings) : null;
 }
 
-/** Brings every hike's cached level and peak score in line with the current settings. */
+/**
+ * Brings every hike's cached level and peak score in line with the current
+ * settings, and queues the ones measured differently to be measured again.
+ */
 export async function refreshAll(db: Database.Database, settings = loadSettings(db)) {
   invalidateReferences();
   const ids = (db.prepare("SELECT id FROM analyses").all() as Array<{ id: number }>).map((row) => row.id);

@@ -26,8 +26,8 @@ export function registerSettingsRoute(app: FastifyInstance) {
 
   app.get("/api/settings", respond);
 
-  // Replaces all settings. Hikes are re-scored before this returns, and
-  // measured again first if a measurement setting changed.
+  // Replaces all settings. Hikes are re-scored before this returns; if a
+  // measurement setting changed, they are also queued to be measured again.
   app.put("/api/settings", async (request, reply) => {
     const parsed = settingsSchema.safeParse(request.body);
     if (!parsed.success) {

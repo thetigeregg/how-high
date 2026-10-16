@@ -43,6 +43,8 @@
   } from "./types.js";
 
   let analyses = $state<AnalysisSummary[]>([]);
+  // False until the list has first arrived, so an empty list is not taken for no hikes.
+  let listLoaded = $state(false);
   let detail = $state<AnalysisDetail | null>(null);
   let selectedId = $state<number | null>(null);
   let uploading = $state(false);
@@ -109,6 +111,8 @@
   const handled = new Set<number>();
   const pendingHere = $derived(jobs.filter((j) => j.reanalysisOf === null && j.kind === tab && j.state !== "done"));
   const reanalysis = $derived(detail ? (jobs.find((j) => j.reanalysisOf === detail!.summary.id && j.state !== "done") ?? null) : null);
+  // Entries being measured again, whether asked for or because the way of measuring changed.
+  const remeasuring = $derived(jobs.filter((j) => j.reanalysisOf !== null && j.state !== "done"));
 
   // Routes Google offers for the link just pasted, while one is still to be picked.
   let offer = $state<RouteOffer | null>(null);
@@ -383,6 +387,8 @@
   // Settings apply to every hike, so both the library and the open hike are stale after a change.
   function settingsChanged() {
     void run(async () => {
+      // A changed measurement setting queues every entry to be measured again.
+      await pollJobs();
       analyses = await fetchAnalyses();
       if (selectedId !== null) {
         const id = selectedId;
@@ -435,7 +441,9 @@
     // Jobs started before this page was loaded, or from another tab, show up too.
     void pollJobs();
     void run(async () => {
-      analyses = await fetchAnalyses();
+      analyses = await fetchAnalyses().finally(() => (listLoaded = true));
+      // Loading the list may have queued entries to be measured again.
+      void pollJobs();
       const linked = analyses.find((a) => a.id === Number(location.hash.slice(1)));
       const first = linked ?? analyses.find((a) => a.kind === "hike") ?? analyses[0];
       if (first) await select(first.id);
@@ -477,10 +485,11 @@
     <HikeLibrary
       analyses={listed}
       pending={pendingHere}
+      {remeasuring}
       ondismiss={dismiss}
       {selectedId}
       onselect={select}
-      empty={tab === "hike" ? "No hikes yet." : "No routes yet."}
+      empty={!listLoaded ? "Loading…" : tab === "hike" ? "No hikes yet." : "No routes yet."}
     />
   </aside>
 
@@ -764,7 +773,7 @@
           onopen={(id, range) => (id === selectedId ? (selection = range) : void select(id, range))}
         />
       </section>
-    {:else if loading}
+    {:else if loading || !listLoaded}
       <p class="placeholder">Loading…</p>
     {:else}
       <p class="placeholder">Add a GPX file to see where a hike is exposed.</p>

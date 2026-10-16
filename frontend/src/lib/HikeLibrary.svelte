@@ -6,6 +6,7 @@
   let {
     analyses,
     pending,
+    remeasuring,
     selectedId,
     onselect,
     ondismiss,
@@ -14,6 +15,8 @@
     analyses: AnalysisSummary[];
     /** Entries still being measured in the background, or that failed to be. */
     pending: Job[];
+    /** Entries being measured again in the background, or that failed to be. */
+    remeasuring: Job[];
     /** Cancels a pending entry, or clears a failed one. */
     ondismiss: (job: Job) => void;
     selectedId: number | null;
@@ -75,11 +78,19 @@
   </ul>
 {/if}
 
+{#if remeasuring.some((j) => j.state !== "failed")}
+  {@const count = remeasuring.filter((j) => j.state !== "failed").length}
+  <p class="remeasure-note">
+    Measuring {count === 1 ? "1 entry" : `${count} entries`} again; each keeps its previous result until it is done.
+  </p>
+{/if}
+
 {#if analyses.length === 0}
   {#if pending.length === 0}<p class="empty">{empty}</p>{/if}
 {:else}
   <ul>
     {#each analyses as a (a.id)}
+      {@const rerun = remeasuring.find((j) => j.reanalysisOf === a.id)}
       <li>
         <button type="button" class:selected={a.id === selectedId} onclick={() => onselect(a.id)}>
           <span class="name">{a.name || "Untitled"}</span>
@@ -99,6 +110,20 @@
             {/if}
             {#if a.status === "planned"}<span class="planned">planned</span>{/if}
           </span>
+          {#if rerun}
+            <span class="rerun" class:failed={rerun.state === "failed"}>
+              {#if rerun.state === "failed"}
+                Measuring again failed; open it to see why
+              {:else if rerun.state === "queued"}
+                Waiting to be measured again
+              {:else}
+                Measuring again: {rerun.stage}{timeLeft(rerun)}
+              {/if}
+            </span>
+            {#if rerun.state === "running"}
+              <progress max={rerun.total || 1} value={rerun.total > 0 ? rerun.done : undefined} aria-label="Progress measuring {a.name} again"></progress>
+            {/if}
+          {/if}
         </button>
       </li>
     {/each}
@@ -211,5 +236,17 @@
   .empty {
     color: var(--text-muted);
     font-size: 0.9rem;
+  }
+  .rerun {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+  .rerun.failed {
+    color: var(--error);
+  }
+  .remeasure-note {
+    margin: 0 0 0.4rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
   }
 </style>

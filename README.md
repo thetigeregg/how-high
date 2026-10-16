@@ -95,7 +95,10 @@ flagged points are grouped into sections.
 
 Every number involved is adjustable under **Settings**, with an explanation
 of each. Hikes are stored as measurements and scored on demand, so a change
-applies to all hikes at once.
+applies to all hikes at once. A change to what is measured, or a new version
+that measures differently, measures every entry again in the background; the
+list shows each one's progress, and each keeps its previous result until it
+is done.
 
 ### Routes from Google Maps links
 
