@@ -14,16 +14,17 @@ const { config } = await import("./config.js");
 const { openDatabase } = await import("./db/client.js");
 const { MEASURE_VERSION, measure } = await import("./exposure/analyze.js");
 const { resample } = await import("./gpx/resample.js");
-const { gpxPath, loadMeasurement } = await import("./hikes.js");
+const { gpxPath, loadMeasurement, refreshAll } = await import("./hikes.js");
 const { dismiss, idle, listJobs, reset } = await import("./jobs.js");
 const { DEFAULT_SETTINGS } = await import("./settings.js");
 
 const identity = { name: "test", forward: (x: number, y: number): [number, number] => [x, y], inverse: (x: number, y: number): [number, number] => [x, y] };
 
-let counter = 0;
+// One database for all tests: what is remembered about an entry is kept by its id, which must not repeat.
+const db = openDatabase(path.join(config.dataDir, "test.db"));
+
 /** An entry measured by an older version, with the given file as what it was made from. */
-function staleEntry(source: string) {
-  const db = openDatabase(path.join(config.dataDir, `test-${counter++}.db`));
+function staleEntry(source: string, createdAt = "2026-01-01T00:00:00.000Z") {
   const measurement = {
     ...measure({ source: "synthetic", cellSize: 2, elevation: (x) => 1000 - x }, resample([[0, -100], [0, 100]], 5), identity),
     version: MEASURE_VERSION - 1,
@@ -32,20 +33,20 @@ function staleEntry(source: string) {
     db
       .prepare(
         `INSERT INTO analyses (name, created_at, length_m, level, max_score, terrain_source, confidence, result, kind)
-         VALUES ('Old hike', '2026-01-01T00:00:00.000Z', 200, 'green', 0, 'synthetic', 'high', ?, 'hike')`,
+         VALUES ('Old hike', ?, 200, 'green', 0, 'synthetic', 'high', ?, 'hike')`,
       )
-      .run(JSON.stringify(measurement)).lastInsertRowid,
+      .run(createdAt, JSON.stringify(measurement)).lastInsertRowid,
   );
   fs.mkdirSync(config.uploadsDir, { recursive: true });
   fs.writeFileSync(gpxPath(id), source);
-  return { db, id };
+  return id;
 }
 
 beforeEach(() => reset());
 
 describe("measuring again after the way of measuring changed", () => {
   it("answers with the stored measurement at once and queues one job for it", async () => {
-    const { db, id } = staleEntry("<gpx></gpx>");
+    const id = staleEntry("<gpx></gpx>");
     const first = await loadMeasurement(db, id, DEFAULT_SETTINGS);
     await loadMeasurement(db, id, DEFAULT_SETTINGS);
     expect(first?.version).toBe(MEASURE_VERSION - 1);
@@ -57,11 +58,22 @@ describe("measuring again after the way of measuring changed", () => {
   });
 
   it("does not start a failed one over on every load", async () => {
-    const { db, id } = staleEntry("not a gpx file");
+    const id = staleEntry("not a gpx file");
     await loadMeasurement(db, id, DEFAULT_SETTINGS);
     await idle();
     expect(listJobs()[0]).toMatchObject({ reanalysisOf: id, state: "failed" });
     await loadMeasurement(db, id, DEFAULT_SETTINGS);
     expect(listJobs()).toHaveLength(1);
+  });
+
+  it("queues the most recently added entries first", async () => {
+    db.prepare("DELETE FROM analyses").run();
+    // Added out of order, as after an import that keeps when each was first added.
+    const march = staleEntry("<gpx></gpx>", "2026-03-01T00:00:00.000Z");
+    const january = staleEntry("<gpx></gpx>", "2026-01-01T00:00:00.000Z");
+    const may = staleEntry("<gpx></gpx>", "2026-05-01T00:00:00.000Z");
+    await refreshAll(db, DEFAULT_SETTINGS);
+    expect(listJobs().map((job) => job.reanalysisOf)).toEqual([may, march, january]);
+    await idle();
   });
 });

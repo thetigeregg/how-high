@@ -152,11 +152,12 @@ export async function loadAnalysis(db: Database.Database, id: number, settings =
 
 /**
  * Brings every hike's cached level and peak score in line with the current
- * settings, and queues the ones measured differently to be measured again.
+ * settings, and queues the ones measured differently to be measured again,
+ * the most recently added first: those are the likeliest to be looked at.
  */
 export async function refreshAll(db: Database.Database, settings = loadSettings(db)) {
   invalidateReferences();
-  const ids = (db.prepare("SELECT id FROM analyses").all() as Array<{ id: number }>).map((row) => row.id);
+  const ids = (db.prepare("SELECT id FROM analyses ORDER BY created_at DESC, id DESC").all() as Array<{ id: number }>).map((row) => row.id);
   for (const id of ids) {
     try {
       const analysis = await loadAnalysis(db, id, settings);
