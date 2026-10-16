@@ -14,6 +14,8 @@ import { bilinear, GridTerrain, type Terrain } from "./grid.js";
 const TNM_PRODUCTS = "https://tnmaccess.nationalmap.gov/api/v1/products";
 const DATASET = "Digital Elevation Model (DEM) 1 meter";
 const TNM_PAGE = 200;
+/** Seconds to wait before each further attempt at a product search; the service often times out for a moment. */
+const SEARCH_RETRY_S = [3, 10];
 const CELL_M = 2;
 /** Cached blocks are this many 2 m cells square, i.e. 1 km. */
 const BLOCK_CELLS = 500;
@@ -174,6 +176,26 @@ const indexKey = (lon: number, lat: number) => `${Math.floor(lon / INDEX_CELL_DE
 const intersects = (a: [number, number, number, number], b: [number, number, number, number]) =>
   a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
 
+/** One page of a product search, asked again after a pause when the service fails or does not answer. */
+export async function searchPage(params: URLSearchParams): Promise<{ total?: number; items?: TnmItem[] }> {
+  for (let attempt = 0; ; attempt++) {
+    let failure: string;
+    let worthAgain = true;
+    try {
+      const res = await fetch(`${TNM_PRODUCTS}?${params}`, { signal: AbortSignal.timeout(60_000) });
+      if (res.ok) return (await res.json()) as { total?: number; items?: TnmItem[] };
+      failure = `${res.status} ${res.statusText}`;
+      // A request the service rejects outright will not do better a second time.
+      worthAgain = res.status >= 500 || res.status === 429;
+    } catch (err) {
+      failure = (err as Error).message;
+    }
+    if (!worthAgain || attempt >= SEARCH_RETRY_S.length) throw new Error(`USGS product search failed: ${failure}`);
+    logger.info({ failure, attempt: attempt + 1 }, "USGS product search failed; asking again");
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_RETRY_S[attempt] * 1000));
+  }
+}
+
 async function searchTiles(bbox: [number, number, number, number]): Promise<UsgsTile[]> {
   const tiles: UsgsTile[] = [];
   for (let offset = 0; ; offset += TNM_PAGE) {
@@ -184,9 +206,7 @@ async function searchTiles(bbox: [number, number, number, number]): Promise<Usgs
       offset: String(offset),
       outputFormat: "JSON",
     });
-    const res = await fetch(`${TNM_PRODUCTS}?${params}`, { signal: AbortSignal.timeout(60_000) });
-    if (!res.ok) throw new Error(`USGS product search failed: ${res.status} ${res.statusText}`);
-    const page = (await res.json()) as { total?: number; items?: TnmItem[] };
+    const page = await searchPage(params);
     const items = page.items ?? [];
     for (const item of items) {
       const tile = parseTile(item);
@@ -335,10 +355,11 @@ function readCachedBlock(file: string): Float32Array | null {
 
 /**
  * Loads USGS lidar terrain around a route, fetching the blocks that are not
- * cached yet. Ground no published tile covers is NaN. Throws when the USGS
- * servers cannot be reached, so the caller can fall back to the global tiles.
+ * cached yet. Ground no published tile covers is NaN. Null when the piece
+ * covers too large an area for lidar; throws when the USGS servers cannot be
+ * reached. Either way the caller falls back to the global tiles.
  */
-export async function loadUsgsTerrain(points: Array<[number, number]>, projection: Projection, buffer: number): Promise<Terrain> {
+export async function loadUsgsTerrain(points: Array<[number, number]>, projection: Projection, buffer: number): Promise<Terrain | null> {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const [x, y] of points) {
     minX = Math.min(minX, x - buffer);
@@ -347,9 +368,7 @@ export async function loadUsgsTerrain(points: Array<[number, number]>, projectio
     maxY = Math.max(maxY, y + buffer);
   }
   const bounds = { minX, minY, maxX, maxY };
-  if (((maxX - minX) / CELL_M) * ((maxY - minY) / CELL_M) > MAX_GRID_CELLS) {
-    throw new Error("Route piece covers too large an area for lidar terrain");
-  }
+  if (((maxX - minX) / CELL_M) * ((maxY - minY) / CELL_M) > MAX_GRID_CELLS) return null;
   // The outline of the box, in degrees, with points along each edge for the curvature of the projection.
   const outline: Array<[number, number]> = [];
   for (let t = 0; t <= 1; t += 0.25) {

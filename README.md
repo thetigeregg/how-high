@@ -190,8 +190,10 @@ check for yourself.
   1 m lidar elevation model, read at 2 m so it measures the same as in
   Switzerland, courtesy of the U.S. Geological Survey. Only the parts a route
   needs are fetched from each file. It does not cover everywhere yet; a
-  route with more than 2% of its points outside it, or measured while the
-  USGS servers cannot be reached, is measured on the global tiles instead.
+  route with more than 2% of its points outside it is measured on the global
+  tiles instead. So is one added while the USGS servers cannot be reached
+  (after asking a few times), which is then measured again in the background
+  once they answer.
 - **Terrain elsewhere**: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/),
   roughly 10 to 30 m. Good for steep mountainsides, blind to small cliffs;
   results are labeled as low confidence.

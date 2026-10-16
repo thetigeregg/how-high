@@ -61,42 +61,47 @@ export async function remeasure(db: Database.Database, id: number, settings: Set
   return measurement;
 }
 
-// Minutes to wait before each further attempt to fetch map context for a hike
-// that was measured without it.
-const CONTEXT_RETRY_MIN = [1, 5, 15, 60, 180];
-const awaitingContext = new Set<number>();
+/** Whether a hike was measured without data a server failed to give: map context, or US lidar. */
+export const incomplete = (result: { mapContext: boolean; lidarUnavailable?: boolean }) =>
+  !result.mapContext || result.lidarUnavailable === true;
+
+// Minutes to wait before each further attempt to complete a hike that was
+// measured without map context or lidar.
+const RETRY_MIN = [1, 5, 15, 60, 180];
+const awaitingRetry = new Set<number>();
 
 /**
- * Keeps trying in the background to get map context for a hike measured
- * without it, so a slow or failing OpenStreetMap server never holds up an
- * upload. Gives up after the last delay; opening Re-analyze still works.
+ * Keeps trying in the background to measure a hike again with the map
+ * context or US lidar it was measured without, so a slow or failing
+ * OpenStreetMap or USGS server never holds up an upload. Gives up after the
+ * last delay; opening Re-analyze still works.
  */
-export function retryContextLater(db: Database.Database, id: number, attempt = 0) {
-  if (attempt === 0 && awaitingContext.has(id)) return;
-  if (attempt >= CONTEXT_RETRY_MIN.length) {
-    awaitingContext.delete(id);
+export function retryLater(db: Database.Database, id: number, attempt = 0) {
+  if (attempt === 0 && awaitingRetry.has(id)) return;
+  if (attempt >= RETRY_MIN.length) {
+    awaitingRetry.delete(id);
     return;
   }
-  awaitingContext.add(id);
+  awaitingRetry.add(id);
   setTimeout(
     async () => {
       const exists = db.prepare("SELECT 1 FROM analyses WHERE id = ?").get(id) !== undefined;
       if (!exists || !hasSource(id)) {
-        awaitingContext.delete(id);
+        awaitingRetry.delete(id);
         return;
       }
       try {
-        if ((await remeasure(db, id, loadSettings(db))).mapContext) {
-          logger.info({ id }, "map context added on retry");
-          awaitingContext.delete(id);
+        if (!incomplete(await remeasure(db, id, loadSettings(db)))) {
+          logger.info({ id }, "missing map context or lidar added on retry");
+          awaitingRetry.delete(id);
           return;
         }
       } catch (err) {
-        logger.error({ id, err }, "retry for map context failed");
+        logger.error({ id, err }, "retry for map context or lidar failed");
       }
-      retryContextLater(db, id, attempt + 1);
+      retryLater(db, id, attempt + 1);
     },
-    CONTEXT_RETRY_MIN[attempt] * 60_000,
+    RETRY_MIN[attempt] * 60_000,
   ).unref();
 }
 
@@ -121,7 +126,7 @@ function measureLater(db: Database.Database, id: number, settings: Settings) {
     if (!db.prepare("SELECT 1 FROM analyses WHERE id = ?").get(id) || !hasSource(id)) return id;
     try {
       const measurement = await remeasure(db, id, loadSettings(db), controls);
-      if (!measurement.mapContext) retryContextLater(db, id);
+      if (incomplete(measurement)) retryLater(db, id);
     } catch (err) {
       catchUpStopped.set(id, target);
       throw err;
@@ -162,7 +167,7 @@ export async function refreshAll(db: Database.Database, settings = loadSettings(
     try {
       const analysis = await loadAnalysis(db, id, settings);
       if (!analysis) continue;
-      if (!analysis.mapContext) retryContextLater(db, id);
+      if (incomplete(analysis)) retryLater(db, id);
       db.prepare("UPDATE analyses SET level = ?, max_score = ? WHERE id = ?").run(
         analysis.summary.level,
         analysis.summary.maxScore,

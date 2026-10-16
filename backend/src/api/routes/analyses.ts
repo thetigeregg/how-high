@@ -20,7 +20,8 @@ import {
   loadAnalysis,
   verdictOn,
   remeasure,
-  retryContextLater,
+  incomplete,
+  retryLater,
   routePath,
   scoreWith,
 } from "../../hikes.js";
@@ -151,7 +152,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     fs.mkdirSync(config.uploadsDir, { recursive: true });
     if (original) fs.writeFileSync(gpxPath(id), original.gpx);
     else fs.writeFileSync(routePath(id), JSON.stringify(source));
-    if (!measurement.mapContext) retryContextLater(app.db, id);
+    if (incomplete(measurement)) retryLater(app.db, id);
     return id;
   }
 
@@ -331,7 +332,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
   });
 
   // Measures the entry again from what it was made from, as a background job,
-  // e.g. to retry map context that was unavailable. Name, rating and marks are kept.
+  // e.g. to retry map context or lidar that was unavailable. Name, rating and marks are kept.
   app.post("/api/analyses/:id/reanalyze", async (request, reply) => {
     const id = idSchema.safeParse((request.params as { id: string }).id);
     if (!id.success || !getRow(id.data) || !hasSource(id.data)) {
@@ -342,7 +343,7 @@ export function registerAnalysesRoute(app: FastifyInstance) {
     if (isBeingReanalyzed(target)) return reply.status(409).send({ error: "this is already being measured again" });
     const job = enqueue({ kind: row.kind === "route" ? "route" : "hike", label: row.name, reanalysisOf: target }, async (controls) => {
       const measurement = await remeasure(app.db, target, loadSettings(app.db), controls);
-      if (!measurement.mapContext) retryContextLater(app.db, target);
+      if (incomplete(measurement)) retryLater(app.db, target);
       return target;
     });
     return reply.status(202).send(job);

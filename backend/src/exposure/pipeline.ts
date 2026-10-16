@@ -262,13 +262,17 @@ export async function measureSource(
     if (swiss) terrain = await loadSwissTerrain(xy, TERRAIN_BUFFER_M);
     else if (!us) terrain = await loadTerrariumTerrain(xy, projection, TERRAIN_BUFFER_M);
     else {
+      let lidar: Terrain | null;
       try {
-        terrain = await loadUsgsTerrain(xy, projection, TERRAIN_BUFFER_M);
+        lidar = await loadUsgsTerrain(xy, projection, TERRAIN_BUFFER_M);
       } catch (err) {
         if (err instanceof Canceled) throw err;
         logger.warn({ err: (err as Error).message }, "USGS lidar unavailable; measuring on global terrain");
-        return measureSource(source, params, { ...options, forceGlobal: true });
+        // Marked, so it is measured again on lidar once the servers answer.
+        return { ...(await measureSource(source, params, { ...options, forceGlobal: true })), lidarUnavailable: true };
       }
+      if (!lidar) return measureSource(source, params, { ...options, forceGlobal: true });
+      terrain = lidar;
     }
     terrainInfo ??= { source: terrain.source, cellSize: terrain.cellSize, confidence: fineTerrain ? "high" : "low" };
     // In quick mode one failure is taken as the servers being down: the rest

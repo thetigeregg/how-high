@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { blockRange, blockWindow, orderTiles, parseTile, resampleTiles, TileSampler, type TileMeta, type UsgsTile } from "./usgs.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { blockRange, blockWindow, orderTiles, parseTile, resampleTiles, searchPage, TileSampler, type TileMeta, type UsgsTile } from "./usgs.js";
 
 const S3 = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects";
 const item = (project: string, file: string) => ({
@@ -91,5 +91,46 @@ describe("resampleTiles", () => {
     expect(grid.cellSize).toBe(2);
     expect(grid.elevation(1, -1)).toBe(100);
     expect(grid.elevation(13, -5)).toBe(200);
+  });
+});
+
+describe("searchPage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const answers = (...statuses: number[]) => {
+    const fetch = vi.fn();
+    for (const status of statuses) {
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({ total: 0, items: [] }), { status, statusText: String(status) }));
+    }
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  };
+
+  it("asks again after a gateway timeout", async () => {
+    vi.useFakeTimers();
+    const fetch = answers(504, 200);
+    const page = searchPage(new URLSearchParams());
+    await vi.runAllTimersAsync();
+    await expect(page).resolves.toEqual({ total: 0, items: [] });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after three failures", async () => {
+    vi.useFakeTimers();
+    const fetch = answers(504, 503, 502);
+    const page = searchPage(new URLSearchParams());
+    const failed = expect(page).rejects.toThrow("USGS product search failed: 502");
+    await vi.runAllTimersAsync();
+    await failed;
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not ask again a request the service rejects", async () => {
+    const fetch = answers(400);
+    await expect(searchPage(new URLSearchParams())).rejects.toThrow("USGS product search failed: 400");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

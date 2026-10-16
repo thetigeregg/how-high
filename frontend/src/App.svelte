@@ -27,6 +27,7 @@
   import SettingsModal from "./lib/SettingsModal.svelte";
   import Upload from "./lib/Upload.svelte";
   import type {
+    Analysis,
     AnalysisDetail,
     AnalysisSummary,
     Job,
@@ -421,13 +422,14 @@
     });
   }
 
-  // While the open hike is still waiting for map context, look again now and then.
+  // While the open hike is still waiting for map context or lidar, look again now and then.
+  const awaitingData = (result: Analysis) => result.mapContext !== true || result.lidarUnavailable === true;
   $effect(() => {
-    if (!detail || detail.result.mapContext === true) return;
+    if (!detail || !awaitingData(detail.result)) return;
     const id = detail.summary.id;
     const timer = setInterval(async () => {
       const loaded = await fetchAnalysis(id).catch(() => null);
-      if (!loaded?.result.mapContext || selectedId !== id) return;
+      if (!loaded || awaitingData(loaded.result) || selectedId !== id) return;
       detail = loaded;
       analyses = await fetchAnalyses().catch(() => analyses);
     }, 30_000);
@@ -579,7 +581,12 @@
               succeeds.
             </p>
           {/if}
-          {#if result.terrain.confidence === "low"}
+          {#if result.lidarUnavailable}
+            <p class="note">
+              Measured on coarse terrain: the USGS lidar servers could not be reached. This is retried in the
+              background and the page updates when it succeeds.
+            </p>
+          {:else if result.terrain.confidence === "low"}
             <p class="note">Coarse terrain data: steep mountainsides show up, small cliffs and ledges do not.</p>
           {/if}
         </div>

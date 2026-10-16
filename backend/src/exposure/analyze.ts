@@ -99,6 +99,8 @@ export interface Analysis {
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
   /** Whether forest, bridges, tunnels and path grades from OpenStreetMap were applied. */
   mapContext: boolean;
+  /** Whether a US route is on the global tiles only because the USGS servers could not be reached. */
+  lidarUnavailable: boolean;
   /** Score at which yellow, orange and red start, as used for this result. */
   thresholds: [number, number, number];
   profile: Profile;
@@ -185,6 +187,8 @@ export interface Measurement {
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
   swiss: boolean;
   mapContext: boolean;
+  /** Set on a US route measured on the global tiles because the USGS servers could not be reached. */
+  lidarUnavailable?: boolean;
   /** The measurement settings this was taken with. */
   params: MeasureParams;
   /** `MEASURE_VERSION` at the time; absent on the oldest measurements. */
@@ -588,6 +592,7 @@ export function score(measurement: Measurement, params: ScoreParams = DEFAULT_PA
     spacingM: spacing,
     terrain: measurement.terrain,
     mapContext: measurement.mapContext,
+    lidarUnavailable: measurement.lidarUnavailable ?? false,
     thresholds: params.thresholds,
     profile: measurement.profile ?? "hike",
     legs: legs.map((leg) =>

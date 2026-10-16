@@ -166,6 +166,8 @@ export interface Analysis {
   terrain: { source: string; cellSize: number; confidence: "high" | "low" };
   /** Absent on hikes analyzed before map context existed. */
   mapContext?: boolean;
+  /** A US route on the global tiles only because the USGS servers could not be reached; retried in the background. */
+  lidarUnavailable?: boolean;
   /** Score at which Mild, Exposed and Severe start. */
   thresholds: [number, number, number];
   profile: "hike" | "road";
